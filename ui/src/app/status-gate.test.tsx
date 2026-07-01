@@ -46,4 +46,37 @@ describe("StatusGate", () => {
     render(<StatusGate><div>chat-ui</div></StatusGate>);
     await screen.findByText("Unavailable");
   });
+
+  it("never renders arbitrary indexer strings and drops indexer data when unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "unavailable", indexer: { outcome: "sensitive backend detail", time: "2026-01-01T00:00:00Z" } })));
+    render(<StatusGate><div>chat-ui</div></StatusGate>);
+    await screen.findByText("Unavailable");
+    expect(screen.queryByText(/sensitive/)).toBeNull();
+    expect(screen.queryByText(/Indexer:/)).toBeNull();
+  });
+
+  it("maps an arbitrary indexer outcome to unknown before rendering", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ready", indexer: { outcome: "backend secret", time: "invalid" } })));
+    render(<StatusGate><div>chat-ui</div></StatusGate>);
+    await screen.findByText("Connected");
+    expect(screen.getByText("Indexer: unknown")).toBeTruthy();
+    expect(screen.queryByText(/backend secret/)).toBeNull();
+  });
+
+  it("clears the interval and performs no state update after unmount", async () => {
+    vi.useFakeTimers();
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>((done) => { resolve = done; });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
+    const clear = vi.spyOn(window, "clearInterval");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const view = render(<StatusGate><div>chat-ui</div></StatusGate>);
+    view.unmount();
+    expect(clear).toHaveBeenCalledOnce();
+    resolve(new Response(JSON.stringify({ status: "ready", indexer: { outcome: "success", time: null } })));
+    await act(async () => {});
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(consoleError).not.toHaveBeenCalled();
+  });
 });

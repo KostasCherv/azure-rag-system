@@ -1,18 +1,9 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
-import type { NormalizedReadiness } from "@/lib/readiness";
+import { normalizeStatusResponse, type NormalizedReadiness } from "@/lib/readiness";
 
 const initial: NormalizedReadiness = { status: "checking", indexer: null };
-
-function parseStatus(value: unknown): NormalizedReadiness {
-  if (!value || typeof value !== "object") return { status: "unavailable", indexer: null };
-  const body = value as Record<string, unknown>;
-  if (!["ready", "degraded", "unavailable"].includes(String(body.status))) return { status: "unavailable", indexer: null };
-  const indexer = body.indexer;
-  if ((body.status === "ready" || body.status === "degraded") && (!indexer || typeof indexer !== "object" || typeof (indexer as Record<string, unknown>).outcome !== "string")) return { status: "unavailable", indexer: null };
-  return body as NormalizedReadiness;
-}
 
 export function StatusGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState(initial);
@@ -22,7 +13,8 @@ export function StatusGate({ children }: { children: ReactNode }) {
       try {
         const response = await fetch("/api/status", { signal: controller.signal, cache: "no-store" });
         if (!response.ok) throw new Error("unavailable");
-        setStatus(parseStatus(await response.json()));
+        const next = normalizeStatusResponse(await response.json());
+        if (!controller.signal.aborted) setStatus(next);
       } catch {
         if (!controller.signal.aborted) setStatus({ status: "unavailable", indexer: null });
       }

@@ -10,4 +10,15 @@ describe("copilot route", () => {
     expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", { Authorization: "Bearer secret" });
     expect(handle).toHaveBeenCalledOnce();
   });
+
+  it("requests and applies a fresh token on every POST", async () => {
+    const getToken = vi.fn().mockResolvedValueOnce("first").mockResolvedValueOnce("second");
+    const makeAgent = vi.fn(() => ({} as never));
+    const post = createPostHandler({ getToken, makeAgent, makeEndpoint: vi.fn(() => ({ handleRequest: async () => new Response("ok") })) as never, getUrl: () => "https://example.test/agui" });
+    await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
+    await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
+    expect(getToken).toHaveBeenCalledTimes(2);
+    expect(makeAgent).toHaveBeenNthCalledWith(1, "https://example.test/agui", { Authorization: "Bearer first" });
+    expect(makeAgent).toHaveBeenNthCalledWith(2, "https://example.test/agui", { Authorization: "Bearer second" });
+  });
 });
