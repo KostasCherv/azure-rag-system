@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from threading import Event
+from threading import Barrier, Event
 
 from fastapi.testclient import TestClient
 
@@ -143,10 +143,18 @@ def test_indexer_normalization_and_error_sanitization():
     assert result.status == "failed"
     assert result.started_at == "2026-01-01T00:00:00Z"
     assert result.ended_at == "2026-01-01T00:01:00Z"
-    assert "secret-token" not in result.error
-    assert "private.example" not in result.error
-    assert len(result.error) <= 200
-    assert sanitize_error(RuntimeError("api-key=abc123 endpoint https://host/path")) == "api-key=[redacted] endpoint [redacted]"
+    assert result.error == "indexer run failed"
+
+
+def test_error_summaries_are_strictly_allowlisted_and_suppress_broad_secrets():
+    secrets = [
+        "password=hunter2", "client_secret=super-secret", "AccountKey=base64value",
+        "SharedAccessSignature=sv=2026&sig=secret", "https://host/path?sig=secret",
+        "Bearer abc.def.ghi", "totally novel private customer payload",
+    ]
+    assert {sanitize_error(value) for value in secrets} == {"operation failed"}
+    assert sanitize_error("request timed out with password=hunter2") == "operation timed out"
+    assert sanitize_error("HTTP 403 client_secret=secret") == "authorization failed"
 
 
 def test_search_probe_uses_count_and_indexer_endpoints_without_downloading_documents():
@@ -182,10 +190,40 @@ def test_search_probe_uses_count_and_indexer_endpoints_without_downloading_docum
 
 def test_openai_probe_is_minimal_and_deterministic():
     captured = {}
+    options = {}
     class Completions:
         def create(self, **kwargs): captured.update(kwargs)
-    client = type("Client", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
-    assert probe_openai(config(), client).status == "available"
+    configured = type("Configured", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    class Client:
+        def with_options(self, **kwargs):
+            options.update(kwargs)
+            return configured
+    assert probe_openai(config(), Client(), timeout_seconds=4.75).status == "available"
+    assert options == {"timeout": 4.75, "max_retries": 0}
     assert captured["model"] == "chat"
     assert captured["max_tokens"] == 1
     assert captured["temperature"] == 0
+
+
+def test_openai_request_timeout_becomes_safe_unavailable_result():
+    class Completions:
+        def create(self, **kwargs):
+            raise TimeoutError("timed out; client_secret=do-not-return")
+    configured = type("Configured", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
+    client = type("Client", (), {"with_options": lambda self, **kwargs: configured})()
+    result = ReadinessService(
+        successful_search, lambda: probe_openai(config(), client, timeout_seconds=0.01)
+    ).check()
+    assert result.http_status == 503
+    assert result.openai.error == "operation timed out"
+
+
+def test_readiness_probes_execute_in_parallel():
+    barrier = Barrier(2, timeout=0.25)
+    def search():
+        barrier.wait()
+        return successful_search()
+    def openai():
+        barrier.wait()
+        return successful_openai()
+    assert ReadinessService(search, openai, timeout_seconds=0.5).check().status == "ready"

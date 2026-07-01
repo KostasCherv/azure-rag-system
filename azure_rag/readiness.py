@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -50,15 +49,18 @@ class ReadinessResult:
         return body
 
 
-def sanitize_error(error: BaseException | str, limit: int = 200) -> str:
-    text = " ".join(str(error).split())
-    text = re.sub(r"https?://\S+", "[redacted]", text, flags=re.IGNORECASE)
-    text = re.sub(
-        r"(?i)(bearer\s+|api[-_ ]?key\s*[=:]\s*|token\s*[=:]\s*)\S+",
-        lambda match: match.group(1) + "[redacted]",
-        text,
-    )
-    return text[:limit] or "probe failed"
+def sanitize_error(error: BaseException | str, fallback: str = "operation failed") -> str:
+    """Map untrusted diagnostics to a small, non-sensitive vocabulary."""
+    text = str(error).lower()
+    if "timeout" in text or "timed out" in text:
+        return "operation timed out"
+    if any(marker in text for marker in ("401", "unauthenticated", "authentication failed")):
+        return "authentication failed"
+    if any(marker in text for marker in ("403", "forbidden", "authorization failed")):
+        return "authorization failed"
+    if any(marker in text for marker in ("429", "rate limit", "throttl")):
+        return "rate limited"
+    return fallback
 
 
 def _timestamp(value: Any) -> str | None:
@@ -89,24 +91,29 @@ def normalize_indexer(payload: dict[str, Any]) -> IndexerResult:
         status=status,
         started_at=_timestamp(latest.get("startTime")),
         ended_at=_timestamp(latest.get("endTime")),
-        error=sanitize_error(error) if error else None,
+        error=sanitize_error(error, "indexer run failed") if error else None,
     )
 
 
 def probe_search(config: AppConfig, credential: TokenCredential, session: Any) -> SearchResult:
-    count = _request(
-        config, "GET", f"/indexes/{config.search_index}/docs/$count",
-        credential=credential, session=session, timeout=5,
-    )
-    indexer = _request(
-        config, "GET", f"/indexers/{config.indexer_name}/status",
-        credential=credential, session=session, timeout=5,
-    )
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="search-readiness") as executor:
+        count_future = executor.submit(
+            _request, config, "GET", f"/indexes/{config.search_index}/docs/$count",
+            credential=credential, session=session, timeout=5,
+        )
+        indexer_future = executor.submit(
+            _request, config, "GET", f"/indexers/{config.indexer_name}/status",
+            credential=credential, session=session, timeout=5,
+        )
+        count = count_future.result()
+        indexer = indexer_future.result()
     return SearchResult(status="available", document_count=int(count), indexer=normalize_indexer(indexer))
 
 
-def probe_openai(config: AppConfig, client: Any) -> DependencyResult:
-    client.chat.completions.create(
+def probe_openai(
+    config: AppConfig, client: Any, *, timeout_seconds: float = 5
+) -> DependencyResult:
+    client.with_options(timeout=timeout_seconds, max_retries=0).chat.completions.create(
         model=config.azure_openai_chat_deployment,
         messages=[{"role": "user", "content": "Reply OK."}],
         max_tokens=1,
@@ -143,13 +150,12 @@ class ReadinessService:
             return result
 
     def _run_probes(self) -> ReadinessResult:
-        executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="readiness")
-        search_future = executor.submit(self._search_probe)
-        openai_future = executor.submit(self._openai_probe)
-        done, pending = wait({search_future, openai_future}, timeout=self._timeout)
-        for future in pending:
-            future.cancel()
-        executor.shutdown(wait=False, cancel_futures=True)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="readiness") as executor:
+            search_future = executor.submit(self._search_probe)
+            openai_future = executor.submit(self._openai_probe)
+            done, pending = wait({search_future, openai_future}, timeout=self._timeout)
+            for future in pending:
+                future.cancel()
         search = self._search_result(search_future, done)
         openai = self._dependency_result(openai_future, done)
         unavailable = (
@@ -177,8 +183,8 @@ class ReadinessService:
             if not isinstance(result, SearchResult):
                 raise TypeError("invalid probe result")
             return result
-        except Exception:
-            return SearchResult(status="unavailable", error="probe failed")
+        except Exception as exc:
+            return SearchResult(status="unavailable", error=sanitize_error(exc))
 
     @staticmethod
     def _dependency_result(future: Future[Any], done: set[Future[Any]]) -> DependencyResult:
@@ -189,5 +195,5 @@ class ReadinessService:
             if not isinstance(result, DependencyResult):
                 raise TypeError("invalid probe result")
             return result
-        except Exception:
-            return DependencyResult(status="unavailable", error="probe failed")
+        except Exception as exc:
+            return DependencyResult(status="unavailable", error=sanitize_error(exc))
