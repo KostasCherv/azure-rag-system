@@ -36,7 +36,7 @@ pytest tests/test_infra_static.py -q
 ./infra/deploy.sh DEPLOYMENT_RESOURCE_GROUP dev SEARCH_RESOURCE_GROUP SEARCH_SERVICE_NAME
 ```
 
-`deploy.sh` first calls `enable-search-identity.sh`, which reads the current identity envelope and sends an idempotent management-plane PATCH containing only the identity. For a service with user-assigned identities it uses `SystemAssigned, UserAssigned` and carries the complete `userAssignedIdentities` map forward unchanged. It then verifies that Azure returns a system principal ID before Bicep starts, without printing identities. Bicep treats Search as an existing resource and never PUTs it, so the deployment does not need Search SKU, scale, networking, encryption, or semantic-search settings. The script requires `jq`. If you invoke Bicep directly, run the identity script first:
+`deploy.sh` first calls `enable-search-identity.sh`, which reads the current identity envelope and sends an idempotent management-plane PATCH containing only the identity. For a service with user-assigned identities it uses `SystemAssigned, UserAssigned`, preserves every identity resource-ID key, and normalizes each request value to `{}` so GET-only `clientId`/`principalId` fields are never replayed. It then verifies that Azure returns a system principal ID before Bicep starts, without printing identities. Bicep treats Search as an existing resource and never PUTs it, so the deployment does not need Search SKU, scale, networking, encryption, or semantic-search settings. The script requires `jq`. If you invoke Bicep directly, run the identity script first:
 
 ```bash
 ./infra/enable-search-identity.sh SUBSCRIPTION_ID SEARCH_RESOURCE_GROUP SEARCH_SERVICE_NAME

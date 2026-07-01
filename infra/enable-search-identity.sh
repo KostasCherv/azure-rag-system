@@ -17,7 +17,7 @@ if ! command -v jq >/dev/null 2>&1; then
 fi
 
 current_identity="$(az rest --method get --url "$resource_url" --query identity --output json)"
-user_assigned_identities="$(jq -ce '.userAssignedIdentities // {}' <<<"$current_identity")"
+user_assigned_identities="$(jq -ce '(.userAssignedIdentities // {}) | with_entries(.value = {})' <<<"$current_identity")"
 has_user_assigned="$(jq -r '((.type // "") | contains("UserAssigned")) or ((.userAssignedIdentities // {}) | length > 0)' <<<"$current_identity")"
 
 if [[ "$has_user_assigned" == "true" ]]; then

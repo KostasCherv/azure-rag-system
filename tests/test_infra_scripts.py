@@ -45,7 +45,7 @@ fi
         ),
         (
             {"type": "SystemAssigned, UserAssigned", "principalId": "system-object", "userAssignedIdentities": {"/uami": {"clientId": "client", "principalId": "principal"}}},
-            {"identity": {"type": "SystemAssigned, UserAssigned", "userAssignedIdentities": {"/uami": {"clientId": "client", "principalId": "principal"}}}},
+            {"identity": {"type": "SystemAssigned, UserAssigned", "userAssignedIdentities": {"/uami": {}}}},
         ),
     ],
 )
