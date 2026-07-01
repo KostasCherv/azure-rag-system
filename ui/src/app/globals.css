@@ -1,0 +1,91 @@
+:root {
+  --ink: #17202a;
+  --muted: #64707d;
+  --line: #dfe4e8;
+  --surface: #ffffff;
+  --canvas: #f3f5f6;
+  --azure: #0078d4;
+  --green: #16835b;
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--font-geist), Arial, sans-serif;
+  letter-spacing: 0;
+}
+
+button, textarea { font: inherit; }
+
+.console-shell {
+  display: grid;
+  grid-template-rows: 64px minmax(0, 1fr);
+  height: 100dvh;
+  min-height: 560px;
+}
+
+.console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.brand, .service-strip, .service-strip span {
+  display: flex;
+  align-items: center;
+}
+
+.brand { gap: 11px; min-width: 0; }
+
+.brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  color: white;
+  background: var(--azure);
+  border-radius: 6px;
+}
+
+.brand h1 { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.25; }
+.brand p { margin: 2px 0 0; color: var(--muted); font: 11px/1.2 var(--font-geist-mono), monospace; }
+
+.service-strip { gap: 20px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.service-strip span { gap: 6px; }
+.service-strip svg { color: #52606d; }
+.service-strip .status { color: var(--green); font-weight: 600; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.chat-workspace {
+  min-height: 0;
+  padding: 16px;
+}
+
+.chat-workspace > * {
+  width: min(100%, 1100px);
+  height: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 18px rgb(30 42 52 / 6%);
+}
+
+@media (max-width: 720px) {
+  .console-shell { grid-template-rows: 58px minmax(0, 1fr); min-height: 480px; }
+  .console-header { padding: 0 14px; }
+  .service-strip span:not(.status) { display: none; }
+  .chat-workspace { padding: 0; }
+  .chat-workspace > * { border: 0; border-radius: 0; box-shadow: none; }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "azure-rag-ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@ag-ui/client": "0.0.57",
+    "@copilotkit/react-core": "1.62.0",
+    "@copilotkit/runtime": "1.62.0",
+    "lucide-react": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  },
+  "overrides": {
+    "@copilotkit/react-core": {
+      "@copilotkit/web-components": "1.62.0"
+    }
+  }
+}

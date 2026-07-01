@@ -64,6 +64,62 @@ FastAPI docs are available at:
 http://127.0.0.1:8000/docs
 ```
 
+## AG-UI Endpoint
+
+The app also exposes a minimal AG-UI-compatible streaming endpoint at:
+
+```text
+POST /agui
+```
+
+Example:
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/agui \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{
+    "threadId": "demo-thread",
+    "runId": "demo-run",
+    "state": {},
+    "messages": [
+      {
+        "id": "msg-1",
+        "role": "user",
+        "content": "What is the Premium support response time?"
+      }
+    ],
+    "tools": [],
+    "context": [],
+    "forwardedProps": {}
+  }'
+```
+
+This streams AG-UI lifecycle and text events from the existing Azure RAG service.
+
+## Run The CopilotKit UI
+
+The browser UI lives in `ui/`. It uses a server-side CopilotKit runtime to
+connect to FastAPI, so Azure credentials remain in the Python service.
+
+Terminal 1:
+
+```bash
+uv run uvicorn azure_rag.api:app --reload
+```
+
+Terminal 2:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The default agent URL is
+`http://127.0.0.1:8000/agui`; override it with `AGENT_URL` in `ui/.env.local`
+when the API runs elsewhere.
+
 ## Production Extensions
 
 - Use managed identity/RBAC instead of API keys and storage connection strings.
