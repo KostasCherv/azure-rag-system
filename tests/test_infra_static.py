@@ -51,7 +51,9 @@ def test_required_app_settings_and_identities_are_declared() -> None:
         assert setting in apps
     all_bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
     assert all_bicep.count("type: 'SystemAssigned'") == 3
-    assert '"identity":{"type":"SystemAssigned"}' in read("infra/enable-search-identity.sh")
+    search_identity_script = read("infra/enable-search-identity.sh")
+    assert '"identity":{"type":"SystemAssigned"}' in search_identity_script
+    assert "SystemAssigned, UserAssigned" in search_identity_script
     assert "allowedPrincipals" in apps
     assert "backendAudience" in apps
     assert "openIdIssuer" in apps
@@ -140,7 +142,8 @@ def test_search_identity_predeploy_uses_scoped_patch_and_verifies_principal() ->
     assert "az rest --method patch" in script
     assert "identity" in script and "SystemAssigned" in script
     assert "--method put" not in script.lower()
-    assert "--body '{\"identity\":{\"type\":\"SystemAssigned\"}}'" in script
+    assert '--body "$patch_body"' in script
+    assert "userAssignedIdentities" in script
     assert '"properties"' not in script
     assert "identity.principalId" in script
     assert "exit 1" in script

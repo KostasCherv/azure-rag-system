@@ -23,4 +23,6 @@ az bicep build --file infra/main.bicep
 az deployment group create \
   --resource-group "$resource_group" \
   --template-file infra/main.bicep \
-  --parameters "$parameter_file"
+  --parameters "$parameter_file" \
+  searchResourceGroupName="$search_resource_group" \
+  searchServiceName="$search_service_name"

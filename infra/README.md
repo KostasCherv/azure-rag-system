@@ -36,7 +36,7 @@ pytest tests/test_infra_static.py -q
 ./infra/deploy.sh DEPLOYMENT_RESOURCE_GROUP dev SEARCH_RESOURCE_GROUP SEARCH_SERVICE_NAME
 ```
 
-`deploy.sh` first calls `enable-search-identity.sh`, which sends an idempotent management-plane PATCH containing only `{"identity":{"type":"SystemAssigned"}}`, then verifies that Azure returns a principal ID before Bicep starts. Bicep treats Search as an existing resource and never PUTs it, so the deployment does not need Search SKU, scale, networking, encryption, or semantic-search settings. If you invoke Bicep directly, run the identity script first:
+`deploy.sh` first calls `enable-search-identity.sh`, which reads the current identity envelope and sends an idempotent management-plane PATCH containing only the identity. For a service with user-assigned identities it uses `SystemAssigned, UserAssigned` and carries the complete `userAssignedIdentities` map forward unchanged. It then verifies that Azure returns a system principal ID before Bicep starts, without printing identities. Bicep treats Search as an existing resource and never PUTs it, so the deployment does not need Search SKU, scale, networking, encryption, or semantic-search settings. The script requires `jq`. If you invoke Bicep directly, run the identity script first:
 
 ```bash
 ./infra/enable-search-identity.sh SUBSCRIPTION_ID SEARCH_RESOURCE_GROUP SEARCH_SERVICE_NAME
@@ -45,6 +45,8 @@ pytest tests/test_infra_static.py -q
 Use a lowercase `namePrefix` of at most 28 characters, containing only letters, digits, and internal hyphens and beginning with a letter. The stable Bicep decorators enforce length; Bicep does not currently expose a stable regex decorator, so the remaining naming rules are documented and also enforced by Azure resource validation.
 
 Do not run deployment or what-if with the example placeholders. Role assignments can take several minutes to propagate after ARM reports success; retry smoke tests after propagation rather than adding keys or broad roles.
+
+The Search resource group and service name passed to `deploy.sh` are authoritative: the script uses them for the identity PATCH and passes the same values as explicit Bicep parameter overrides. This prevents the parameter file from directing RBAC at a different Search service than the one mutated during predeployment.
 
 ## Network and DNS notes
 
