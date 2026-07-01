@@ -126,6 +126,34 @@ The application expects these resources to exist:
 
 The setup script creates the Search index, data source, skillset, and indexer. Bicep provisions the application-facing Container Apps, VNet, private DNS, APIM, policies, and runtime RBAC. It references rather than creates the Azure resource group, Search service, Foundry/OpenAI resource, model deployments, storage account, or Blob container.
 
+## Infrastructure
+
+Production infrastructure is defined in `infra/main.bicep` and its focused modules. The deployment keeps the browser-facing UI public while placing FastAPI behind an internal Container Apps environment that can only be reached through API Management.
+
+| Layer | Provisioned behavior |
+|---|---|
+| Public application | Next.js runs in a public Container Apps environment and uses its system-assigned identity to obtain an Entra token for APIM |
+| API gateway | APIM Standard v2 validates tenant, audience, and caller identity; applies shared limits of 30 requests per minute and 500 requests per day to `/query` and `/agui`; and authenticates to FastAPI with its managed identity |
+| Private application | FastAPI runs in a separate VNet-injected internal Container Apps environment with Container Apps authentication restricted to the APIM identity |
+| Network and DNS | Dedicated APIM and API subnets plus private DNS allow APIM to resolve and reach the internal API without exposing a public API ingress |
+| Azure dependencies | Existing OpenAI, Search, and Storage resources are referenced by ID and endpoint rather than recreated |
+| Identity and RBAC | The API and Search system identities receive only the data-plane and management roles required for querying, readiness, indexing, embeddings, and Blob access |
+
+The template intentionally does not create the deployment resource group, container registry, Entra application registrations, Azure OpenAI/model deployments, Search service, storage account, or source container. These remain explicit prerequisites so deploying the application does not replace or reset existing service configuration.
+
+Deployment uses two parameter files:
+
+- `infra/parameters/dev.bicepparam` for development environments.
+- `infra/parameters/prod.bicepparam` for production environments.
+
+After publishing the API and UI images, deploy with:
+
+```bash
+./infra/deploy.sh <deployment-resource-group> <dev|prod> <search-resource-group> <search-service-name>
+```
+
+The deployment script safely enables the existing Search system identity, preserving any user-assigned identities, and then deploys Bicep with the same Search target. See [`infra/README.md`](infra/README.md) for image build commands, required Entra configuration, parameter descriptions, network details, role assignments, and the post-deployment smoke checklist.
+
 ## Project Structure
 
 ```text
@@ -391,21 +419,32 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 
 ## Production Roadmap
 
-| Priority | Addition | Why it matters |
+### Delivered
+
+- APIM and Entra workload authentication protect `/query`, `/agui`, and `/ready`; APIM applies a shared 30-request/minute rate limit and 500-request/day quota to query traffic.
+- Managed identities replace application API keys for OpenAI, Search, and Storage. Search-integrated vectorization, skillsets, and Blob ingestion are also keyless.
+- `/health` provides process liveness, while cached `/ready` probes Search document count, OpenAI availability, and the latest indexer result with correct 200/503 semantics.
+- The UI reports live readiness and indexer status, removes stale connection state, and gates chat until dependencies are ready.
+- Bicep and deployment scripts define the split public/private Container Apps topology, APIM Standard v2 integration, private DNS, Easy Auth, identities, and RBAC.
+- Backend, UI, APIM-policy, deployment-script, and generated-infrastructure behavior have local automated coverage.
+
+### Next
+
+| Priority | Addition | Exit criterion |
 |---|---|---|
-| P0 | Interactive user authentication, per-user authorization, and request-size limits | Extends the existing workload authentication and APIM caller limits to human identities |
-| P0 | Validate the Bicep topology with a live Azure deployment and automated smoke suite | Confirms Standard v2 VNet integration, private DNS, Easy Auth, RBAC propagation, and policy behavior in the target subscription |
-| P0 | Private endpoints/restricted access for existing Search, OpenAI, Storage, and registry pull identity | Extends the private application boundary to every pre-existing dependency and private image registry |
-| P1 | Scheduled indexer runs, deletion handling, dead-letter workflow, and alerting | Keeps the index synchronized and makes ingestion failures actionable |
-| P1 | Application Insights and OpenTelemetry traces | Measures retrieval, generation, token use, errors, empty results, and end-to-end latency |
-| P1 | Retries with backoff, timeouts, circuit breaking, and concurrency limits | Handles Azure throttling and transient failures predictably |
-| P1 | Document-level ACL and tenant filters enforced in Search | Prevents cross-user or cross-tenant retrieval |
-| P1 | Evaluation datasets and CI quality gates | Tracks retrieval recall, groundedness, citation correctness, latency, and cost |
-| P1 | True token streaming and client cancellation | Reduces perceived latency and avoids wasted generation work |
-| P2 | Azure AI Document Intelligence or Content Understanding | Adds layout-aware ingestion for PDFs, scans, forms, tables, and images |
-| P2 | Semantic captions/answers in the returned source model | Exposes Azure AI Search explanations directly to clients |
-| P2 | Conversation persistence and feedback capture | Supports multi-turn behavior, auditing, and iterative quality improvement |
-| P2 | Caching and duplicate-content detection | Reduces repeated embedding, retrieval, and generation costs |
+| P0 | Live Azure deployment and automated smoke suite | Prove VNet integration, private DNS, Easy Auth, RBAC propagation, managed-identity calls, readiness, and APIM throttling in the target subscription |
+| P0 | Interactive user authentication, per-user authorization, and request-size limits | Human users sign in; authorization and quotas are attributable to a user or tenant rather than only the UI workload |
+| P0 | Private endpoints for Search, OpenAI, Storage, and the image registry | Every dependency is reachable only through approved private network paths, including managed-identity image pulls |
+| P1 | Scheduled ingestion, deletion handling, dead-letter workflow, and alerting | Content stays synchronized automatically and failed documents produce actionable alerts |
+| P1 | Application Insights and OpenTelemetry | Dashboards expose retrieval/generation latency, token use, dependency failures, empty results, and readiness history |
+| P1 | Resilience controls | Retries, backoff, circuit breaking, and concurrency limits handle Azure throttling without cascading failures |
+| P1 | Document ACL and tenant filters | Search enforces tenant/user access constraints before chunks reach the model |
+| P1 | Evaluation datasets and CI gates | CI tracks retrieval recall, groundedness, citation correctness, latency, and cost against explicit thresholds |
+| P1 | True token streaming and client cancellation | Model tokens reach the UI incrementally and disconnects cancel upstream generation |
+| P2 | Layout-aware document ingestion | PDFs, scans, forms, tables, and images are processed through Document Intelligence or Content Understanding |
+| P2 | Richer source metadata | Responses expose semantic captions/answers and useful document/page locations |
+| P2 | Conversation persistence and feedback | Multi-turn state, audit history, and user feedback survive individual requests |
+| P2 | Caching and duplicate-content detection | Repeated embedding, retrieval, and generation work is measurably reduced |
 
 ## Design Notes
 
