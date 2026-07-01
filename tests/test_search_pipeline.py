@@ -21,10 +21,14 @@ def config():
 class FakeCredential:
     def __init__(self):
         self.scopes = []
+        self.closed = False
 
     def get_token(self, *scopes):
         self.scopes.append(scopes)
         return type("Token", (), {"token": "search-token"})()
+
+    def close(self):
+        self.closed = True
 
 
 class FakeResponse:
@@ -75,6 +79,9 @@ def test_upload_constructs_blob_client_with_account_url_and_credential(monkeypat
             return Blob()
 
     class Service:
+        def close(self):
+            captured["service_closed"] = True
+
         def get_container_client(self, name):
             captured["container"] = name
             return Container()
@@ -89,6 +96,110 @@ def test_upload_constructs_blob_client_with_account_url_and_credential(monkeypat
     assert captured["account_url"] == "https://storage.blob.core.windows.net"
     assert captured["credential"] is credential
     assert captured["container"] == "docs"
+    assert captured["service_closed"] is True
+    assert credential.closed is False
+
+
+def test_upload_does_not_close_injected_blob_client_or_credential(tmp_path: Path):
+    (tmp_path / "sample.md").write_text("hello", encoding="utf-8")
+    credential = FakeCredential()
+
+    class Blob:
+        def upload_blob(self, *args, **kwargs):
+            pass
+
+    class Service:
+        closed = False
+
+        def get_container_client(self, name):
+            return type(
+                "Container",
+                (),
+                {
+                    "create_container": lambda self: None,
+                    "get_blob_client": lambda self, name: Blob(),
+                },
+            )()
+
+        def close(self):
+            self.closed = True
+
+    service = Service()
+    search_pipeline.upload_sample_docs(
+        config(), tmp_path, credential=credential, blob_service_client=service
+    )
+
+    assert service.closed is False
+    assert credential.closed is False
+
+
+def test_upload_closes_owned_blob_client_and_credential_on_error(monkeypatch, tmp_path: Path):
+    (tmp_path / "sample.md").write_text("hello", encoding="utf-8")
+    credential = FakeCredential()
+    closed = {"blob": False}
+
+    class Blob:
+        def upload_blob(self, *args, **kwargs):
+            raise RuntimeError("upload failed")
+
+    class Service:
+        def get_container_client(self, name):
+            return type(
+                "Container",
+                (),
+                {
+                    "create_container": lambda self: None,
+                    "get_blob_client": lambda self, name: Blob(),
+                },
+            )()
+
+        def close(self):
+            closed["blob"] = True
+
+    monkeypatch.setattr(search_pipeline, "default_credential", lambda: credential)
+    monkeypatch.setattr(search_pipeline, "BlobServiceClient", lambda **kwargs: Service())
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="upload failed"):
+        search_pipeline.upload_sample_docs(config(), tmp_path)
+
+    assert closed["blob"] is True
+    assert credential.closed is True
+
+
+def test_upload_closes_owned_credential_if_blob_client_construction_fails(monkeypatch):
+    credential = FakeCredential()
+    monkeypatch.setattr(search_pipeline, "default_credential", lambda: credential)
+
+    def fail_client(**kwargs):
+        raise RuntimeError("client failed")
+
+    monkeypatch.setattr(search_pipeline, "BlobServiceClient", fail_client)
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="client failed"):
+        search_pipeline.upload_sample_docs(config())
+
+    assert credential.closed is True
+
+
+def test_search_helper_closes_owned_credential_on_request_error(monkeypatch):
+    credential = FakeCredential()
+
+    class BrokenSession:
+        def request(self, *args, **kwargs):
+            raise RuntimeError("request failed")
+
+    monkeypatch.setattr(search_pipeline, "default_credential", lambda: credential)
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="request failed"):
+        search_pipeline.create_or_update_index(config(), session=BrokenSession())
+
+    assert credential.closed is True
 
 
 def test_search_payloads_are_keyless_and_data_source_uses_resource_id():

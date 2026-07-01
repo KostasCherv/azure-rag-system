@@ -49,16 +49,30 @@ class RagService:
         session: Any = requests,
     ):
         self.config = config
+        self._owns_credential = credential is None
+        self._owns_openai = openai_client is None
         self.credential = credential if credential is not None else default_credential()
         self.session = session
-        self.openai = (
-            openai_client
-            if openai_client is not None
-            else OpenAI(
-                base_url=config.openai_base_url,
-                api_key=openai_token_provider(self.credential),
-            )
-        )
+        if openai_client is not None:
+            self.openai = openai_client
+        else:
+            try:
+                self.openai = OpenAI(
+                    base_url=config.openai_base_url,
+                    api_key=openai_token_provider(self.credential),
+                )
+            except Exception:
+                if self._owns_credential:
+                    self.credential.close()
+                raise
+
+    def close(self) -> None:
+        try:
+            if self._owns_openai:
+                self.openai.close()
+        finally:
+            if self._owns_credential:
+                self.credential.close()
 
     def retrieve(self, question: str, top: int = 5) -> list[RetrievedChunk]:
         url = (

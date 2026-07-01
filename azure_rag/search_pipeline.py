@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import requests
 from azure.core.credentials import TokenCredential
@@ -44,36 +45,82 @@ def _request(
     return response.json()
 
 
+@contextmanager
+def _credential_scope(credential: TokenCredential | None) -> Iterator[TokenCredential]:
+    owned = credential is None
+    resolved = credential if credential is not None else default_credential()
+    try:
+        yield resolved
+    finally:
+        if owned:
+            resolved.close()
+
+
+def _managed_request(
+    config: AppConfig,
+    method: str,
+    path: str,
+    *,
+    credential: TokenCredential | None,
+    session: Any,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    with _credential_scope(credential) as resolved:
+        return _request(
+            config,
+            method,
+            path,
+            credential=resolved,
+            session=session,
+            **kwargs,
+        )
+
+
 def upload_sample_docs(
     config: AppConfig,
     docs_dir: Path = Path("sample_docs"),
     *,
     credential: TokenCredential | None = None,
+    blob_service_client: Any | None = None,
 ) -> list[str]:
-    credential = credential if credential is not None else default_credential()
-    blob_service = BlobServiceClient(account_url=config.storage_account_url, credential=credential)
-    container = blob_service.get_container_client(config.storage_container)
+    owns_blob_service = blob_service_client is None
+    owns_credential = credential is None and owns_blob_service
+    resolved_credential = credential
     try:
-        container.create_container()
-    except Exception:
-        pass
+        if owns_blob_service:
+            resolved_credential = credential if credential is not None else default_credential()
+            blob_service_client = BlobServiceClient(
+                account_url=config.storage_account_url,
+                credential=resolved_credential,
+            )
+        container = blob_service_client.get_container_client(config.storage_container)
+        try:
+            container.create_container()
+        except Exception:
+            pass
 
-    uploaded: list[str] = []
-    for path in sorted(docs_dir.glob("*.md")):
-        blob = container.get_blob_client(path.name)
-        blob.upload_blob(
-            path.read_text(encoding="utf-8"),
-            overwrite=True,
-            content_settings=ContentSettings(content_type="text/markdown; charset=utf-8"),
-        )
-        uploaded.append(path.name)
-    return uploaded
+        uploaded: list[str] = []
+        for path in sorted(docs_dir.glob("*.md")):
+            blob = container.get_blob_client(path.name)
+            blob.upload_blob(
+                path.read_text(encoding="utf-8"),
+                overwrite=True,
+                content_settings=ContentSettings(content_type="text/markdown; charset=utf-8"),
+            )
+            uploaded.append(path.name)
+        return uploaded
+    finally:
+        try:
+            if owns_blob_service and blob_service_client is not None:
+                blob_service_client.close()
+        finally:
+            if owns_credential and resolved_credential is not None:
+                resolved_credential.close()
 
 
 def create_or_update_index(
     config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
 ) -> None:
-    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.search_index,
         "fields": [
@@ -137,13 +184,12 @@ def create_or_update_index(
             ],
         },
     }
-    _request(config, "PUT", f"/indexes/{config.search_index}", credential=credential, session=session, json=body)
+    _managed_request(config, "PUT", f"/indexes/{config.search_index}", credential=credential, session=session, json=body)
 
 
 def create_or_update_data_source(
     config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
 ) -> None:
-    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.data_source_name,
         "type": "azureblob",
@@ -151,13 +197,12 @@ def create_or_update_data_source(
         "container": {"name": config.storage_container},
         "dataChangeDetectionPolicy": {"@odata.type": "#Microsoft.Azure.Search.HighWaterMarkChangeDetectionPolicy", "highWaterMarkColumnName": "metadata_storage_last_modified"},
     }
-    _request(config, "PUT", f"/datasources/{config.data_source_name}", credential=credential, session=session, json=body)
+    _managed_request(config, "PUT", f"/datasources/{config.data_source_name}", credential=credential, session=session, json=body)
 
 
 def create_or_update_skillset(
     config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
 ) -> None:
-    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.skillset_name,
         "description": "Split sample documents into chunks and embed them with Azure OpenAI inside Azure AI Search.",
@@ -202,13 +247,12 @@ def create_or_update_skillset(
             "parameters": {"projectionMode": "skipIndexingParentDocuments"},
         },
     }
-    _request(config, "PUT", f"/skillsets/{config.skillset_name}", credential=credential, session=session, json=body)
+    _managed_request(config, "PUT", f"/skillsets/{config.skillset_name}", credential=credential, session=session, json=body)
 
 
 def create_or_update_indexer(
     config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
 ) -> None:
-    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.indexer_name,
         "dataSourceName": config.data_source_name,
@@ -224,7 +268,7 @@ def create_or_update_indexer(
             },
         },
     }
-    _request(config, "PUT", f"/indexers/{config.indexer_name}", credential=credential, session=session, json=body)
+    _managed_request(config, "PUT", f"/indexers/{config.indexer_name}", credential=credential, session=session, json=body)
 
 
 def run_indexer(
@@ -234,20 +278,20 @@ def run_indexer(
     credential: TokenCredential | None = None,
     session: Any = requests,
 ) -> dict[str, Any]:
-    credential = credential if credential is not None else default_credential()
-    _request(config, "POST", f"/indexers/{config.indexer_name}/run", credential=credential, session=session)
-    if not wait:
-        return {}
+    with _credential_scope(credential) as resolved:
+        _request(config, "POST", f"/indexers/{config.indexer_name}/run", credential=resolved, session=session)
+        if not wait:
+            return {}
 
-    deadline = time.time() + 180
-    status: dict[str, Any] = {}
-    while time.time() < deadline:
-        status = _request(config, "GET", f"/indexers/{config.indexer_name}/status", credential=credential, session=session)
-        last = status.get("lastResult") or {}
-        if last.get("status") in {"success", "transientFailure", "persistentFailure"}:
-            return status
-        time.sleep(5)
-    return status
+        deadline = time.time() + 180
+        status: dict[str, Any] = {}
+        while time.time() < deadline:
+            status = _request(config, "GET", f"/indexers/{config.indexer_name}/status", credential=resolved, session=session)
+            last = status.get("lastResult") or {}
+            if last.get("status") in {"success", "transientFailure", "persistentFailure"}:
+                return status
+            time.sleep(5)
+        return status
 
 
 def setup_pipeline(
@@ -258,11 +302,11 @@ def setup_pipeline(
     credential: TokenCredential | None = None,
     session: Any = requests,
 ) -> dict[str, Any]:
-    credential = credential if credential is not None else default_credential()
-    uploaded = upload_sample_docs(config, credential=credential) if upload_samples else []
-    create_or_update_index(config, credential=credential, session=session)
-    create_or_update_data_source(config, credential=credential, session=session)
-    create_or_update_skillset(config, credential=credential, session=session)
-    create_or_update_indexer(config, credential=credential, session=session)
-    status = run_indexer(config, credential=credential, session=session) if run else {}
-    return {"uploaded": uploaded, "indexer_status": status}
+    with _credential_scope(credential) as resolved:
+        uploaded = upload_sample_docs(config, credential=resolved) if upload_samples else []
+        create_or_update_index(config, credential=resolved, session=session)
+        create_or_update_data_source(config, credential=resolved, session=session)
+        create_or_update_skillset(config, credential=resolved, session=session)
+        create_or_update_indexer(config, credential=resolved, session=session)
+        status = run_indexer(config, credential=resolved, session=session) if run else {}
+        return {"uploaded": uploaded, "indexer_status": status}

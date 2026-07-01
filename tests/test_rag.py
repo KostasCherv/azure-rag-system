@@ -19,10 +19,22 @@ def config():
 class FakeCredential:
     def __init__(self):
         self.scopes = []
+        self.closed = False
 
     def get_token(self, *scopes):
         self.scopes.append(scopes)
         return type("Token", (), {"token": "search-token"})()
+
+    def close(self):
+        self.closed = True
+
+
+class FakeOpenAIClient:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
 
 class FakeResponse:
@@ -45,7 +57,7 @@ class FakeSession:
 def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     credential = FakeCredential()
     session = FakeSession()
-    openai_client = object()
+    openai_client = FakeOpenAIClient()
     service = RagService(config(), credential=credential, openai_client=openai_client, session=session)
 
     chunks = service.retrieve("question", top=3)
@@ -59,6 +71,11 @@ def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     }
     assert "api-key" not in request["headers"]
     assert credential.scopes == [(AZURE_SEARCH_SCOPE,)]
+
+    service.close()
+
+    assert credential.closed is False
+    assert openai_client.closed is False
 
 
 def test_rag_service_constructs_v1_openai_client_with_token_provider(monkeypatch):
@@ -74,6 +91,55 @@ def test_rag_service_constructs_v1_openai_client_with_token_provider(monkeypatch
         "base_url": "https://example.openai.azure.com/openai/v1/",
         "api_key": "token-provider",
     }
+
+
+def test_rag_service_closes_only_internally_created_resources(monkeypatch):
+    credential = FakeCredential()
+    openai_client = FakeOpenAIClient()
+    monkeypatch.setattr("azure_rag.rag.default_credential", lambda: credential)
+    monkeypatch.setattr("azure_rag.rag.OpenAI", lambda **kwargs: openai_client)
+
+    service = RagService(config(), session=FakeSession())
+    service.close()
+
+    assert openai_client.closed is True
+    assert credential.closed is True
+
+
+def test_rag_service_closes_owned_credential_even_if_owned_client_close_fails(monkeypatch):
+    credential = FakeCredential()
+
+    class BrokenClient:
+        def close(self):
+            raise RuntimeError("close failed")
+
+    monkeypatch.setattr("azure_rag.rag.default_credential", lambda: credential)
+    monkeypatch.setattr("azure_rag.rag.OpenAI", lambda **kwargs: BrokenClient())
+
+    service = RagService(config(), session=FakeSession())
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        service.close()
+    assert credential.closed is True
+
+
+def test_rag_service_closes_owned_credential_if_client_construction_fails(monkeypatch):
+    credential = FakeCredential()
+    monkeypatch.setattr("azure_rag.rag.default_credential", lambda: credential)
+
+    def fail_client(**kwargs):
+        raise RuntimeError("client failed")
+
+    monkeypatch.setattr("azure_rag.rag.OpenAI", fail_client)
+
+    import pytest
+
+    with pytest.raises(RuntimeError, match="client failed"):
+        RagService(config(), session=FakeSession())
+
+    assert credential.closed is True
 
 
 def test_build_messages_include_context_citations_and_question():

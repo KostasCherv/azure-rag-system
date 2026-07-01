@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Callable
 
-from azure.core.credentials import TokenCredential
+from azure.core.credentials import AccessToken, TokenCredential
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
 
@@ -19,5 +19,5 @@ def openai_token_provider(credential: TokenCredential) -> Callable[[], str]:
 
 
 def bearer_headers(credential: TokenCredential, scope: str) -> dict[str, str]:
-    token: Any = credential.get_token(scope)
+    token: AccessToken = credential.get_token(scope)
     return {"Authorization": f"Bearer {token.token}"}
