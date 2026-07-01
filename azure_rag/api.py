@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi import Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from ag_ui.core import RunAgentInput
 
+from .agui import agui_events
 from .config import AppConfig
 from .rag import RagService
 
@@ -38,3 +42,12 @@ def health() -> dict[str, str]:
 def query(request: QueryRequest) -> dict:
     return rag.answer(request.question, top=request.top)
 
+
+@app.post("/agui")
+async def agui(input_data: RunAgentInput, request: Request) -> StreamingResponse:
+    accept_header = request.headers.get("accept")
+    encoder_content_type = "text/event-stream"
+    return StreamingResponse(
+        agui_events(input_data, accept_header, rag),
+        media_type=encoder_content_type,
+    )
