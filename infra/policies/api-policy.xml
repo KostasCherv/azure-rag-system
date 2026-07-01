@@ -1,0 +1,41 @@
+<policies>
+  <inbound>
+    <base />
+    <validate-azure-ad-token tenant-id="{{tenantId}}" header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized" output-token-variable-name="jwt">
+      <audiences>
+        <audience>{{apimAudience}}</audience>
+      </audiences>
+    </validate-azure-ad-token>
+    <set-variable name="callerKey" value="@{
+      var jwt = (Jwt)context.Variables[&quot;jwt&quot;];
+      var oid = jwt.Claims.GetValueOrDefault(&quot;oid&quot;, &quot;&quot;);
+      var appid = jwt.Claims.GetValueOrDefault(&quot;appid&quot;, &quot;&quot;);
+      var azp = jwt.Claims.GetValueOrDefault(&quot;azp&quot;, &quot;&quot;);
+      return !String.IsNullOrEmpty(oid) ? oid : (!String.IsNullOrEmpty(appid) ? appid : azp);
+    }" />
+    <choose>
+      <when condition="@{
+        var jwt = (Jwt)context.Variables[&quot;jwt&quot;];
+        var oid = jwt.Claims.GetValueOrDefault(&quot;oid&quot;, &quot;&quot;);
+        var appid = jwt.Claims.GetValueOrDefault(&quot;appid&quot;, &quot;&quot;);
+        var azp = jwt.Claims.GetValueOrDefault(&quot;azp&quot;, &quot;&quot;);
+        return oid != &quot;{{uiPrincipalId}}&quot; &amp;&amp; appid != &quot;{{uiClientId}}&quot; &amp;&amp; azp != &quot;{{uiClientId}}&quot;;
+      }">
+        <return-response>
+          <set-status code="403" reason="Forbidden" />
+        </return-response>
+      </when>
+    </choose>
+    <choose>
+      <when condition="@(context.Operation.Id == &quot;query&quot; || context.Operation.Id == &quot;agui&quot;)">
+        <rate-limit-by-key calls="30" renewal-period="60" counter-key="@((string)context.Variables[&quot;callerKey&quot;])" retry-after-header-name="Retry-After" />
+        <quota-by-key calls="500" renewal-period="86400" counter-key="@((string)context.Variables[&quot;callerKey&quot;])" retry-after-header-name="Retry-After" />
+      </when>
+    </choose>
+    <set-backend-service base-url="https://{{backendFqdn}}" />
+    <authenticate-managed-identity resource="{{backendAudience}}" />
+  </inbound>
+  <backend><base /></backend>
+  <outbound><base /></outbound>
+  <on-error><base /></on-error>
+</policies>
