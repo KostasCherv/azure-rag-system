@@ -139,25 +139,43 @@ class ReadinessService:
         self._clock = clock
         self._cached: tuple[float, ReadinessResult] | None = None
         self._lock = Lock()
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="readiness")
+        self._inflight: tuple[float, Future[Any], Future[Any]] | None = None
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
     def check(self) -> ReadinessResult:
         with self._lock:
             now = self._clock()
             if self._cached is not None and now - self._cached[0] < self._cache_seconds:
                 return self._cached[1]
-            result = self._run_probes()
-            self._cached = (self._clock(), result)
-            return result
+            if self._inflight is None or all(future.done() for future in self._inflight[1:]):
+                self._inflight = (
+                    now,
+                    self._executor.submit(self._search_probe),
+                    self._executor.submit(self._openai_probe),
+                )
+            inflight = self._inflight
 
-    def _run_probes(self) -> ReadinessResult:
-        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="readiness") as executor:
-            search_future = executor.submit(self._search_probe)
-            openai_future = executor.submit(self._openai_probe)
-            done, pending = wait({search_future, openai_future}, timeout=self._timeout)
-            for future in pending:
-                future.cancel()
+        started_at, search_future, openai_future = inflight
+        remaining = max(0.0, self._timeout - (self._clock() - started_at))
+        done, _ = wait({search_future, openai_future}, timeout=remaining)
         search = self._search_result(search_future, done)
         openai = self._dependency_result(openai_future, done)
+        result = self._aggregate(search, openai)
+
+        with self._lock:
+            if self._inflight is inflight:
+                # A result produced after the deadline is intentionally never
+                # promoted to healthy cache state by a background completion.
+                self._cached = (self._clock(), result)
+                if len(done) == 2:
+                    self._inflight = None
+        return result
+
+    @staticmethod
+    def _aggregate(search: SearchResult, openai: DependencyResult) -> ReadinessResult:
         unavailable = (
             search.status == "unavailable"
             or openai.status == "unavailable"

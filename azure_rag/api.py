@@ -41,17 +41,23 @@ def create_app(
         resolved_config = config if config is not None else AppConfig.from_env()
         owns_rag = rag_service is None
         resolved_rag = rag_service if rag_service is not None else RagService(resolved_config)
-        app.state.config = resolved_config
-        app.state.rag = resolved_rag
-        app.state.readiness = readiness_service or ReadinessService(
+        owns_readiness = readiness_service is None
+        resolved_readiness = readiness_service or ReadinessService(
             lambda: probe_search(resolved_config, resolved_rag.credential, resolved_rag.session),
             lambda: probe_openai(resolved_config, resolved_rag.openai),
         )
+        app.state.config = resolved_config
+        app.state.rag = resolved_rag
+        app.state.readiness = resolved_readiness
         try:
             yield
         finally:
-            if owns_rag:
-                resolved_rag.close()
+            try:
+                if owns_readiness:
+                    resolved_readiness.close()
+            finally:
+                if owns_rag:
+                    resolved_rag.close()
 
     application = FastAPI(title="Azure AI Search RAG Demo", lifespan=lifespan)
 

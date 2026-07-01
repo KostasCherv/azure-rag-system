@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event
+from time import monotonic
 
 from fastapi.testclient import TestClient
 
@@ -108,10 +110,75 @@ def test_each_dependency_failure_is_unavailable():
 
 def test_dependency_timeout_is_bounded():
     blocked = Event()
-    result = ReadinessService(lambda: blocked.wait(1), successful_openai, timeout_seconds=0.01).check()
+    service = ReadinessService(lambda: blocked.wait(1), successful_openai, timeout_seconds=0.01)
+    started = monotonic()
+    result = service.check()
+    elapsed = monotonic() - started
     assert result.http_status == 503
     assert result.search.status == "unavailable"
     assert result.search.error == "probe timed out"
+    assert elapsed < 0.2
+    service.close()
+
+
+def test_concurrent_callers_share_one_probe_run_without_holding_cache_lock():
+    release = Event()
+    started = Barrier(3, timeout=0.5)
+    calls = []
+
+    def search():
+        calls.append("search")
+        started.wait()
+        release.wait(1)
+        return successful_search()
+
+    def openai():
+        calls.append("openai")
+        started.wait()
+        release.wait(1)
+        return successful_openai()
+
+    service = ReadinessService(search, openai, timeout_seconds=0.02)
+    with ThreadPoolExecutor(max_workers=2) as callers:
+        first = callers.submit(service.check)
+        second = callers.submit(service.check)
+        started.wait()
+        before_release = monotonic()
+        assert first.result(timeout=0.2).http_status == 503
+        assert second.result(timeout=0.2).http_status == 503
+        assert monotonic() - before_release < 0.2
+    assert sorted(calls) == ["openai", "search"]
+    release.set()
+    service.close()
+
+
+def test_timed_out_probe_is_not_resubmitted_or_late_promoted():
+    now = [0.0]
+    release = Event()
+    calls = []
+
+    def search():
+        calls.append("search")
+        release.wait(1)
+        return successful_search()
+
+    def openai():
+        calls.append("openai")
+        release.wait(1)
+        return successful_openai()
+
+    service = ReadinessService(
+        search, openai, timeout_seconds=0.01, cache_seconds=30, clock=lambda: now[0]
+    )
+    assert service.check().status == "unavailable"
+    now[0] = 31
+    assert service.check().status == "unavailable"
+    assert sorted(calls) == ["openai", "search"]
+
+    release.set()
+    # The timeout result, rather than a late healthy result, owns this cache window.
+    assert service.check().status == "unavailable"
+    service.close()
 
 
 def test_cache_is_reused_then_expires():
