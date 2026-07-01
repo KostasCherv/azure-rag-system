@@ -59,13 +59,13 @@ def test_rbac_is_least_privilege_and_complete() -> None:
     required_role_ids = {
         "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd",  # Cognitive Services OpenAI User
         "1407120a-92aa-4202-b7e9-c0e197c71c8f",  # Search Index Data Reader
+        "7ca78c08-252a-4471-8644-bb5ff32d4ba0",  # Search Service Contributor
         "ba92f5b4-2d11-453d-a403-e96b0029c9fe",  # Storage Blob Data Contributor
         "2a2b9908-6ea1-4ae2-8e65-a410df84e7d1",  # Storage Blob Data Reader
     }
     assert required_role_ids <= set(rbac.split("'"))
     assert "Owner" not in rbac
     assert "Contributor'" not in rbac
-    assert "Search Service Contributor" not in rbac
 
 
 def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
@@ -75,7 +75,9 @@ def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
     assert "rate-limit-by-key" in policy and 'calls="30"' in policy and 'renewal-period="60"' in policy
     assert "quota-by-key" in policy and 'calls="500"' in policy and 'renewal-period="86400"' in policy
     assert "oid" in policy and "appid" in policy and "azp" in policy
-    assert policy.count('retry-after-header-name="Retry-After"') == 2
+    assert policy.count('retry-after-header-name="Retry-After"') == 1
+    quota_line = next(line for line in policy.splitlines() if "<quota-by-key" in line)
+    assert "retry-after-header-name" not in quota_line
     assert "context.Operation.Id == &quot;query&quot; || context.Operation.Id == &quot;agui&quot;" in policy
     assert "backendAudience" in policy
     assert "api-key" not in policy.lower()
@@ -95,3 +97,10 @@ def test_templates_have_no_secret_or_api_key_parameters() -> None:
     bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
     forbidden = ("param clientSecret", "param apiKey", "listKeys(", "secretRef:", "value: *")
     assert not any(value.lower() in bicep.lower() for value in forbidden)
+
+
+def test_docs_explain_runtime_and_setup_search_management_permissions() -> None:
+    docs = read("infra/README.md")
+    assert "Search Service Contributor" in docs
+    assert "setup script" in docs.lower()
+    assert "management permission" in docs.lower()
