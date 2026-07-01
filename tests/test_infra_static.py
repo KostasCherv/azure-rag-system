@@ -1,3 +1,5 @@
+import json
+import subprocess
 from pathlib import Path
 
 
@@ -48,7 +50,8 @@ def test_required_app_settings_and_identities_are_declared() -> None:
     ):
         assert setting in apps
     all_bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
-    assert all_bicep.count("type: 'SystemAssigned'") >= 4
+    assert all_bicep.count("type: 'SystemAssigned'") == 3
+    assert '"identity":{"type":"SystemAssigned"}' in read("infra/enable-search-identity.sh")
     assert "allowedPrincipals" in apps
     assert "backendAudience" in apps
     assert "openIdIssuer" in apps
@@ -71,7 +74,8 @@ def test_rbac_is_least_privilege_and_complete() -> None:
 def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
     policy = read("infra/policies/api-policy.xml")
     assert "validate-azure-ad-token" in policy
-    assert "authenticate-managed-identity" in policy
+    assert "authentication-managed-identity" in policy
+    assert "<authenticate-managed-identity" not in policy
     assert "rate-limit-by-key" in policy and 'calls="30"' in policy and 'renewal-period="60"' in policy
     assert "quota-by-key" in policy and 'calls="500"' in policy and 'renewal-period="86400"' in policy
     assert "oid" in policy and "appid" in policy and "azp" in policy
@@ -104,3 +108,49 @@ def test_docs_explain_runtime_and_setup_search_management_permissions() -> None:
     assert "Search Service Contributor" in docs
     assert "setup script" in docs.lower()
     assert "management permission" in docs.lower()
+
+
+def test_search_is_existing_and_compiled_template_does_not_put_search() -> None:
+    main = read("infra/main.bicep")
+    assert "resource existingSearch 'Microsoft.Search/searchServices@" in main
+    assert "existing =" in main
+    assert "search-identity.bicep" not in main
+
+    built = subprocess.run(
+        ["az", "bicep", "build", "--file", str(INFRA / "main.bicep"), "--stdout"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    template = json.loads(built.stdout)
+
+    def resource_types(value: object) -> list[str]:
+        if isinstance(value, dict):
+            found = [value["type"]] if isinstance(value.get("type"), str) else []
+            return found + [item for child in value.values() for item in resource_types(child)]
+        if isinstance(value, list):
+            return [item for child in value for item in resource_types(child)]
+        return []
+
+    assert "Microsoft.Search/searchServices" not in resource_types(template)
+
+
+def test_search_identity_predeploy_uses_scoped_patch_and_verifies_principal() -> None:
+    script = read("infra/enable-search-identity.sh")
+    assert "az rest --method patch" in script
+    assert "identity" in script and "SystemAssigned" in script
+    assert "--method put" not in script.lower()
+    assert "--body '{\"identity\":{\"type\":\"SystemAssigned\"}}'" in script
+    assert '"properties"' not in script
+    assert "identity.principalId" in script
+    assert "exit 1" in script
+    deploy = read("infra/deploy.sh")
+    assert deploy.index("./infra/enable-search-identity.sh") < deploy.index("az bicep build")
+
+
+def test_name_prefix_is_bounded_and_validated_for_container_apps() -> None:
+    main = read("infra/main.bicep")
+    assert "@maxLength(28)" in main
+    assert "Lowercase letters, digits, and internal hyphens only" in main
+    # Bicep has no stable regex decorator; assertions are still experimental.
+    assert "assert namePrefix" not in main

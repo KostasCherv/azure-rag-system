@@ -33,7 +33,7 @@
       </when>
     </choose>
     <set-backend-service base-url="https://{{backendFqdn}}" />
-    <authenticate-managed-identity resource="{{backendAudience}}" />
+    <authentication-managed-identity resource="{{backendAudience}}" />
   </inbound>
   <backend><base /></backend>
   <outbound><base /></outbound>

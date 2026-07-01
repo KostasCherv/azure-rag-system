@@ -2,7 +2,8 @@ targetScope = 'resourceGroup'
 
 param location string = resourceGroup().location
 @minLength(3)
-@maxLength(30)
+@maxLength(28)
+@description('Lowercase letters, digits, and internal hyphens only; must start with a letter and end with a letter or digit.')
 param namePrefix string
 param tenantId string
 param apiImage string
@@ -27,13 +28,7 @@ param azureOpenAIEmbeddingDeployment string
 param searchEndpoint string
 param searchServiceName string
 param searchResourceGroupName string
-param searchLocation string = location
 param searchIndex string
-param searchSku string = 'standard'
-param searchReplicaCount int = 1
-param searchPartitionCount int = 1
-@allowed(['Enabled', 'Disabled'])
-param searchPublicNetworkAccess string = 'Enabled'
 param storageAccountUrl string
 param storageAccountName string
 param storageResourceGroupName string
@@ -51,17 +46,9 @@ module network 'modules/network.bicep' = {
   }
 }
 
-module searchIdentity 'modules/search-identity.bicep' = {
-  name: 'search-identity'
+resource existingSearch 'Microsoft.Search/searchServices@2025-05-01' existing = {
+  name: searchServiceName
   scope: resourceGroup(searchResourceGroupName)
-  params: {
-    location: searchLocation
-    searchServiceName: searchServiceName
-    searchSku: searchSku
-    replicaCount: searchReplicaCount
-    partitionCount: searchPartitionCount
-    publicNetworkAccess: searchPublicNetworkAccess
-  }
 }
 
 module apimService 'modules/apim-service.bicep' = {
@@ -127,7 +114,7 @@ module openAIRbac 'modules/rbac-openai.bicep' = {
   name: 'rbac-openai'
   scope: resourceGroup(azureOpenAIResourceGroupName)
   params: {
-    principalIds: [apps.outputs.apiPrincipalId, searchIdentity.outputs.principalId]
+    principalIds: [apps.outputs.apiPrincipalId, existingSearch.identity.principalId]
     resourceName: azureOpenAIResourceName
   }
 }
@@ -146,7 +133,7 @@ module storageRbac 'modules/rbac-storage.bicep' = {
   scope: resourceGroup(storageResourceGroupName)
   params: {
     apiPrincipalId: apps.outputs.apiPrincipalId
-    searchPrincipalId: searchIdentity.outputs.principalId
+    searchPrincipalId: existingSearch.identity.principalId
     resourceName: storageAccountName
   }
 }

@@ -21,7 +21,6 @@ param searchEndpoint = 'https://replace.search.windows.net'
 param searchServiceName = 'replace-search'
 param searchResourceGroupName = 'replace-data-rg'
 param searchIndex = 'replace-index'
-param searchReplicaCount = 2
 param storageAccountUrl = 'https://replace.blob.core.windows.net'
 param storageAccountName = 'replacestorage'
 param storageResourceGroupName = 'replace-data-rg'
