@@ -7,21 +7,37 @@ import {
 import type { NextRequest } from "next/server";
 
 import { getAgentUrl } from "@/lib/agent-url";
-
-const runtime = new CopilotRuntime({
-  agents: {
-    default: new HttpAgent({ url: getAgentUrl() }),
-  },
-});
+import { getApimToken } from "@/lib/server-auth";
 
 const serviceAdapter = new ExperimentalEmptyAdapter();
 
-export async function POST(request: NextRequest) {
-  const { handleRequest } = copilotRuntimeNextJSAppRouterEndpoint({
-    runtime,
-    serviceAdapter,
-    endpoint: "/api/copilotkit",
-  });
+type Dependencies = {
+  getToken: () => Promise<string>;
+  getUrl: () => string;
+  makeAgent: (url: string, headers: Record<string, string>) => HttpAgent;
+  makeEndpoint: typeof copilotRuntimeNextJSAppRouterEndpoint;
+};
 
-  return handleRequest(request);
+export function createPostHandler(deps: Dependencies) {
+  return async (request: NextRequest) => {
+    const token = await deps.getToken();
+    const runtime = new CopilotRuntime({
+      agents: {
+        default: deps.makeAgent(deps.getUrl(), { Authorization: `Bearer ${token}` }),
+      },
+    });
+    const { handleRequest } = deps.makeEndpoint({
+      runtime,
+      serviceAdapter,
+      endpoint: "/api/copilotkit",
+    });
+    return handleRequest(request);
+  };
 }
+
+export const POST = createPostHandler({
+  getToken: getApimToken,
+  getUrl: getAgentUrl,
+  makeAgent: (url, headers) => new HttpAgent({ url, headers }),
+  makeEndpoint: copilotRuntimeNextJSAppRouterEndpoint,
+});

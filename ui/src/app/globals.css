@@ -65,6 +65,12 @@ button, textarea { font: inherit; }
 .service-strip svg { color: #52606d; }
 .service-strip .status { color: var(--green); font-weight: 600; }
 .status i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status-strip { justify-content: flex-end; min-height: 34px; padding: 6px 24px; border-bottom: 1px solid var(--line); }
+.service-strip .status-checking { color: var(--muted); }
+.service-strip .status-degraded { color: #9a6700; }
+.service-strip .status-unavailable { color: #b42318; }
+.indexer-status { color: var(--muted); }
+.chat-placeholder { display: grid; place-items: center; min-height: 220px; padding: 24px; color: var(--muted); text-align: center; }
 
 .chat-workspace {
   min-height: 0;

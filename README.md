@@ -263,9 +263,12 @@ The UI defaults to `http://127.0.0.1:8000/agui`. To use another API URL, create 
 
 ```env
 AGENT_URL=https://your-api.example.com/agui
+APIM_SCOPE=api://your-apim-app-id/.default
+# Optional when readiness is not AGENT_URL with terminal /agui replaced by /ready:
+READY_URL=https://your-api.example.com/ready
 ```
 
-Because the browser calls the local Next.js runtime, `AGENT_URL` is read server-side and Azure credentials remain in the Python service.
+The Next.js server uses `DefaultAzureCredential` to acquire an APIM token for `APIM_SCOPE`; the scope must end in `/.default`. This supports Container Apps managed identity and the local Azure developer credential chain. `AGENT_URL`, `READY_URL`, credentials, and bearer tokens remain server-side. The browser only calls same-origin Next.js routes. The UI polls readiness every 30 seconds and enables chat only while the backend reports `ready`.
 
 ## API
 

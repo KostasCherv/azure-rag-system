@@ -1,5 +1,6 @@
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { Bot, Database, Search } from "lucide-react";
+import { StatusGate } from "./status-gate";
 
 export default function Home() {
   return (
@@ -17,11 +18,10 @@ export default function Home() {
         <div className="service-strip" aria-label="Active Azure services">
           <span><Search size={14} /> Azure AI Search</span>
           <span><Database size={14} /> Blob index</span>
-          <span className="status"><i aria-hidden="true" /> Connected</span>
         </div>
       </header>
 
-      <section className="chat-workspace" aria-label="RAG assistant">
+      <StatusGate>
         <CopilotChat
           agentId="default"
           labels={{
@@ -31,7 +31,7 @@ export default function Home() {
             chatDisclaimerText: "Answers are generated from Azure AI Search results.",
           }}
         />
-      </section>
+      </StatusGate>
     </main>
   );
 }

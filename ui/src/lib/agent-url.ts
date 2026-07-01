@@ -10,3 +10,18 @@ export function getAgentUrl(): string {
 
   return url.toString().replace(/\/$/, "");
 }
+
+export function getReadyUrl(): string {
+  const override = process.env.READY_URL;
+  if (override) return validateHttpUrl(override, "READY_URL");
+  const agent = new URL(getAgentUrl());
+  if (!agent.pathname.endsWith("/agui")) throw new Error("AGENT_URL must have terminal /agui to derive readiness URL");
+  agent.pathname = agent.pathname.slice(0, -5) + "/ready";
+  return agent.toString().replace(/\/$/, "");
+}
+
+function validateHttpUrl(value: string, name: string): string {
+  const url = new URL(value.replace(/\/+$/, ""));
+  if (!(["http:", "https:"] as string[]).includes(url.protocol)) throw new Error(`${name} must use http or https`);
+  return url.toString().replace(/\/$/, "");
+}
