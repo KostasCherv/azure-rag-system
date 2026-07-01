@@ -4,20 +4,25 @@ import { getApimToken } from "@/lib/server-auth";
 
 type Dependencies = { getToken: () => Promise<string>; getUrl: () => string; fetcher: typeof fetch };
 
-export function timeoutSignal(milliseconds: number): AbortSignal {
+export function requestTimeout(milliseconds: number): { signal: AbortSignal; cancel: () => void } {
   const controller = new AbortController();
-  setTimeout(() => controller.abort(), milliseconds);
-  return controller.signal;
+  const timer = setTimeout(() => controller.abort(), milliseconds);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
 export function createStatusHandler(deps: Dependencies) {
   return async () => {
     try {
       const token = await deps.getToken();
-      const response = await deps.fetcher(deps.getUrl(), { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: timeoutSignal(6000), cache: "no-store" });
-      if (!response.ok) return Response.json(unavailable(), { status: 503 });
-      const normalized = normalizeReadiness(await response.json());
-      return Response.json(normalized, { status: normalized.status === "unavailable" ? 503 : 200 });
+      const timeout = requestTimeout(6000);
+      try {
+        const response = await deps.fetcher(deps.getUrl(), { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" }, signal: timeout.signal, cache: "no-store" });
+        if (!response.ok) return Response.json(unavailable(), { status: 503 });
+        const normalized = normalizeReadiness(await response.json());
+        return Response.json(normalized, { status: normalized.status === "unavailable" ? 503 : 200 });
+      } finally {
+        timeout.cancel();
+      }
     } catch {
       return Response.json(unavailable(), { status: 503 });
     }

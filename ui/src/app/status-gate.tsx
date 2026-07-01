@@ -9,6 +9,7 @@ export function StatusGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState(initial);
   useEffect(() => {
     const controller = new AbortController();
+    let timer: number | undefined;
     const poll = async () => {
       try {
         const response = await fetch("/api/status", { signal: controller.signal, cache: "no-store" });
@@ -17,11 +18,15 @@ export function StatusGate({ children }: { children: ReactNode }) {
         if (!controller.signal.aborted) setStatus(next);
       } catch {
         if (!controller.signal.aborted) setStatus({ status: "unavailable", indexer: null });
+      } finally {
+        if (!controller.signal.aborted) timer = window.setTimeout(poll, 30_000);
       }
     };
     void poll();
-    const timer = window.setInterval(poll, 30_000);
-    return () => { controller.abort(); window.clearInterval(timer); };
+    return () => {
+      controller.abort();
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
   }, []);
 
   const label = status.status === "ready" ? "Connected" : status.status[0].toUpperCase() + status.status.slice(1);

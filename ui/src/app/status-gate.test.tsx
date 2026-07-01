@@ -29,6 +29,23 @@ describe("StatusGate", () => {
     expect(screen.queryByText("chat-ui")).toBeNull();
   });
 
+  it("never overlaps polls, so an older ready response cannot overwrite a newer result", async () => {
+    vi.useFakeTimers();
+    let resolveFirst!: (response: Response) => void;
+    const first = new Promise<Response>((done) => { resolveFirst = done; });
+    const fetcher = vi.spyOn(globalThis, "fetch").mockReturnValueOnce(first).mockResolvedValueOnce(new Response("bad", { status: 503 }));
+    render(<StatusGate><div>chat-ui</div></StatusGate>);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetcher).toHaveBeenCalledOnce();
+    resolveFirst(new Response(JSON.stringify({ status: "ready", indexer: { outcome: "success", time: null } })));
+    await act(async () => {});
+    expect(screen.getByText("Connected")).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Unavailable")).toBeTruthy();
+    expect(screen.queryByText("chat-ui")).toBeNull();
+  });
+
   it("shows Degraded and aborts polling on unmount", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
@@ -63,18 +80,15 @@ describe("StatusGate", () => {
     expect(screen.queryByText(/backend secret/)).toBeNull();
   });
 
-  it("clears the interval and performs no state update after unmount", async () => {
+  it("clears the scheduled timeout and performs no state update after unmount", async () => {
     vi.useFakeTimers();
-    let resolve!: (response: Response) => void;
-    const pending = new Promise<Response>((done) => { resolve = done; });
-    const fetcher = vi.spyOn(globalThis, "fetch").mockReturnValue(pending);
-    const clear = vi.spyOn(window, "clearInterval");
+    const fetcher = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ status: "ready", indexer: { outcome: "success", time: null } })));
+    const clear = vi.spyOn(window, "clearTimeout");
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     const view = render(<StatusGate><div>chat-ui</div></StatusGate>);
+    await act(async () => {});
     view.unmount();
     expect(clear).toHaveBeenCalledOnce();
-    resolve(new Response(JSON.stringify({ status: "ready", indexer: { outcome: "success", time: null } })));
-    await act(async () => {});
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fetcher).toHaveBeenCalledOnce();
     expect(consoleError).not.toHaveBeenCalled();

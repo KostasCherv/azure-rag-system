@@ -16,15 +16,22 @@ describe("status route", () => {
       expect(await response.json()).toEqual({ status: "unavailable", indexer: null });
     }
   });
-  it("uses the selected URL and supplies a signal that times out around six seconds", async () => {
+  it("uses the selected URL and aborts a hanging request around six seconds", async () => {
     vi.useFakeTimers();
     let signal: AbortSignal | undefined;
-    const fetcher = vi.fn(async (url, init) => { expect(url).toBe("https://override.test/ready"); signal = init?.signal ?? undefined; return new Response(JSON.stringify({ status: "ready", search: { indexer: { status: "success" } } })); });
-    await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: () => "https://override.test/ready" })();
+    const fetcher = vi.fn((url, init) => new Promise<Response>((_resolve, reject) => { expect(url).toBe("https://override.test/ready"); signal = init?.signal ?? undefined; signal?.addEventListener("abort", () => reject(new Error("aborted"))); }));
+    const result = createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: () => "https://override.test/ready" })();
+    await Promise.resolve();
     expect(signal?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(6_100);
     expect(signal?.aborted).toBe(true);
+    expect((await result).status).toBe(503);
     vi.useRealTimers();
+  });
+  it("clears the timeout after a fast response", async () => {
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    await createStatusHandler({ getToken: async () => "secret", fetcher: async () => new Response("bad", { status: 503 }), getUrl: () => "https://example.test/ready" })();
+    expect(clear).toHaveBeenCalledOnce();
   });
   it.each([
     [undefined, "https://example.test/base/agui", "https://example.test/base/ready"],
