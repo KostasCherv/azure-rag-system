@@ -157,3 +157,16 @@ def test_name_prefix_is_bounded_and_validated_for_container_apps() -> None:
     assert "Lowercase letters, digits, and internal hyphens only" in main
     # Bicep has no stable regex decorator; assertions are still experimental.
     assert "assert namePrefix" not in main
+
+
+def test_root_readme_describes_deployed_security_and_remaining_prerequisites() -> None:
+    docs = read("README.md")
+    assert "API Management Standard v2" in docs
+    assert "30 calls per 60 seconds" in docs
+    assert "500 calls per day" in docs
+    assert "Bicep" in docs
+    assert "end-user authentication and authorization are intentionally absent" not in docs
+    assert "There is no rate limiting" not in docs
+    assert "underlying Azure infrastructure is manually provisioned" not in docs
+    assert "app registrations" in docs.lower()
+    assert "live Azure deployment" in docs

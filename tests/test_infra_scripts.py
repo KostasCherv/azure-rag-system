@@ -37,6 +37,7 @@ fi
 @pytest.mark.parametrize(
     ("current", "expected"),
     [
+        ("", {"identity": {"type": "SystemAssigned"}}),
         ({}, {"identity": {"type": "SystemAssigned"}}),
         ({"type": "SystemAssigned", "principalId": "system-object"}, {"identity": {"type": "SystemAssigned"}}),
         (
@@ -49,13 +50,13 @@ fi
         ),
     ],
 )
-def test_enable_search_identity_preserves_identity_modes(tmp_path: Path, current: dict, expected: dict) -> None:
+def test_enable_search_identity_preserves_identity_modes(tmp_path: Path, current: dict | str, expected: dict) -> None:
     _, log = fake_az(tmp_path)
     patch_body = tmp_path / "patch.json"
     env = os.environ | {
         "PATH": f"{tmp_path}:{os.environ['PATH']}",
         "AZ_LOG": str(log),
-        "CURRENT_IDENTITY_JSON": json.dumps(current),
+        "CURRENT_IDENTITY_JSON": current if isinstance(current, str) else json.dumps(current),
         "PATCH_BODY_FILE": str(patch_body),
         "SYSTEM_PRINCIPAL_ID": "new-system-principal",
     }

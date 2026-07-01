@@ -2,7 +2,7 @@
 
 An Azure-native retrieval-augmented generation (RAG) application that uses Azure AI Search for the full document retrieval pipeline: Blob ingestion, chunking, integrated embeddings, vector indexing, semantic ranking, and hybrid search. FastAPI exposes the RAG service through JSON and AG-UI endpoints, while a Next.js and CopilotKit interface provides the browser experience.
 
-Azure service-to-service access uses managed identities and RBAC. End-user authentication is not implemented yet; see [Production Roadmap](#production-roadmap) before deploying outside a learning or development environment.
+Azure service-to-service access uses managed identities and least-privilege RBAC. The production topology uses API Management Standard v2 to validate Microsoft Entra tokens from the UI identity, enforce per-caller limits, and replace inbound credentials with its managed identity before reaching the private API.
 
 ## Architecture
 
@@ -18,6 +18,7 @@ flowchart LR
     end
 
     subgraph App[Application]
+        APIM[API Management Standard v2<br/>Entra validation + caller limits]
         API[FastAPI RAG service<br/>/health /ready /query /agui]
         Runtime[CopilotKit runtime<br/>Next.js API route]
         UI[Next.js chat UI<br/>CopilotKit React]
@@ -32,7 +33,8 @@ flowchart LR
     Search -->|query vectorization| AOAI
     API -->|grounded prompt| AOAI
     UI --> Runtime
-    Runtime -->|AG-UI HttpAgent| API
+    Runtime -->|Entra bearer token| APIM
+    APIM -->|managed identity<br/>private VNet path| API
 ```
 
 ### Indexing flow
@@ -71,13 +73,16 @@ sequenceDiagram
     actor User
     participant UI as CopilotKit UI
     participant Runtime as Next.js /api/copilotkit
+    participant APIM as API Management
     participant API as FastAPI /agui
     participant Search as Azure AI Search
     participant AOAI as Azure OpenAI Chat
 
     User->>UI: Ask a question
     UI->>Runtime: CopilotKit request
-    Runtime->>API: AG-UI RunAgentInput
+    Runtime->>APIM: AG-UI request + Entra token
+    APIM->>APIM: Validate tenant/audience/client<br/>rate and quota by caller
+    APIM->>API: Replace auth with managed-identity token
     API-->>Runtime: RUN_STARTED
     API->>Search: Keyword + vector query<br/>with semantic reranking
     Search-->>API: Top chunks and scores
@@ -103,6 +108,8 @@ sequenceDiagram
 | Agent protocol | AG-UI | Standardizes UI-to-agent communication | Run lifecycle, text-message lifecycle, and error events over an event stream |
 | Web runtime | CopilotKit runtime in Next.js | Server-side agent bridge | `HttpAgent` proxy to FastAPI; backend URL kept server-side |
 | Web UI | Next.js, React, CopilotKit | Interactive test console | Responsive chat, suggested questions, answer rendering, and source display |
+| API gateway | API Management Standard v2 | Authenticated public API boundary | Tenant/audience/client validation; 30 calls per 60 seconds and 500 calls per day for expensive routes; managed-identity backend auth |
+| Deployment | Bicep and Container Apps | Reproducible application infrastructure | Public UI environment, internal API environment, VNet/DNS, APIM, identities, RBAC, and policies |
 
 ## Azure Resources
 
@@ -117,7 +124,7 @@ The application expects these resources to exist:
 | Storage account | Hosts source Blob container | `kostasdemoragdocs21847` |
 | Blob container | Stores source documents | Set with `AZURE_STORAGE_CONTAINER` |
 
-The setup script creates the Search index, data source, skillset, and indexer. It does not provision the Azure resource group, Search service, Foundry/OpenAI resource, model deployments, storage account, or Blob container.
+The setup script creates the Search index, data source, skillset, and indexer. Bicep provisions the application-facing Container Apps, VNet, private DNS, APIM, policies, and runtime RBAC. It references rather than creates the Azure resource group, Search service, Foundry/OpenAI resource, model deployments, storage account, or Blob container.
 
 ## Project Structure
 
@@ -146,6 +153,9 @@ main.py               Alternate setup entry point
 - An Azure subscription with the resources listed above
 - An Azure AI Search tier that supports semantic ranking
 - Network access between Azure AI Search and the Azure OpenAI embedding deployment
+- Azure CLI, Bicep CLI, and `jq` for infrastructure deployment
+- Microsoft Entra app registrations/audiences for the APIM-facing and backend APIs
+- Permission to enable the Search system identity and create the documented role assignments
 
 ## Configuration
 
@@ -185,6 +195,7 @@ Assign only the roles needed by each identity:
 | Identity | Resource scope | Required role | Purpose |
 |---|---|---|---|
 | Application/setup managed identity | Azure AI Search service | `Search Index Data Reader` | Run retrieval queries against the index |
+| Runtime API managed identity | Azure AI Search service | `Search Service Contributor` | Read indexer status for `/ready` |
 | Setup managed identity | Azure AI Search service | `Search Service Contributor` | Create and update indexes, data sources, skillsets, and indexers |
 | Setup managed identity | Storage account or source container | `Storage Blob Data Contributor` | Create the container when needed and upload sample documents |
 | Azure AI Search system-assigned identity | Storage account or source container | `Storage Blob Data Reader` | Read source documents during indexing |
@@ -363,28 +374,28 @@ npm run lint
 npm run build
 ```
 
-The unit tests mock external calls. Running the setup script and submitting a query are the end-to-end checks against live Azure resources and can incur Azure usage charges.
+The unit tests mock external calls. A live Azure deployment, RBAC-propagation wait, setup-script run, authenticated APIM smoke test, and private-network/DNS verification remain external checks and can incur Azure usage charges. See [`infra/README.md`](infra/README.md) for deployment and smoke-test commands.
 
 ## Current Scope and Limitations
 
-- Azure service authentication uses Microsoft Entra bearer tokens, managed identities, and RBAC; end-user authentication and authorization are intentionally absent.
-- Search resources are managed by application code, but the underlying Azure infrastructure is manually provisioned.
+- APIM authenticates the deployed UI workload identity/application. Interactive end-user identity, per-user authorization, and tenant/document ACL enforcement are not implemented.
+- Bicep provisions the application network, Container Apps, APIM, identities, policies, and RBAC. Search, OpenAI/model deployments, Storage, Entra app registrations, and the deployment resource group remain prerequisites.
 - Indexing is manually triggered and has no recurring schedule.
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
 - Chat requests are synchronous inside the FastAPI process; the AG-UI endpoint wraps the completed answer in streaming protocol events.
 - Conversation history is not persisted and only the latest user message drives each AG-UI run.
 - The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
-- There is no rate limiting, retry policy, circuit breaker, cache, evaluation harness, or application telemetry yet.
+- APIM rate-limits and quotas `/query` and `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.
 
 ## Production Roadmap
 
 | Priority | Addition | Why it matters |
 |---|---|---|
-| P0 | User authentication, authorization, rate limits, and request-size limits | Protects public API and UI surfaces |
-| P0 | Infrastructure as code with separate environments | Reproducibly provisions Search, storage, networking, deployments, identities, and diagnostics |
-| P0 | Private endpoints, restricted public access, Key Vault, and secret rotation | Establishes a production network and secret boundary |
+| P0 | Interactive user authentication, per-user authorization, and request-size limits | Extends the existing workload authentication and APIM caller limits to human identities |
+| P0 | Validate the Bicep topology with a live Azure deployment and automated smoke suite | Confirms Standard v2 VNet integration, private DNS, Easy Auth, RBAC propagation, and policy behavior in the target subscription |
+| P0 | Private endpoints/restricted access for existing Search, OpenAI, Storage, and registry pull identity | Extends the private application boundary to every pre-existing dependency and private image registry |
 | P1 | Scheduled indexer runs, deletion handling, dead-letter workflow, and alerting | Keeps the index synchronized and makes ingestion failures actionable |
 | P1 | Application Insights and OpenTelemetry traces | Measures retrieval, generation, token use, errors, empty results, and end-to-end latency |
 | P1 | Retries with backoff, timeouts, circuit breaking, and concurrency limits | Handles Azure throttling and transient failures predictably |
