@@ -35,9 +35,10 @@ def _request(
     *,
     credential: TokenCredential,
     session: Any = requests,
+    timeout: float = 60,
     **kwargs: Any,
-) -> dict[str, Any]:
-    response = session.request(method, _url(config, path), headers=_headers(credential), timeout=60, **kwargs)
+) -> Any:
+    response = session.request(method, _url(config, path), headers=_headers(credential), timeout=timeout, **kwargs)
     if response.status_code >= 400:
         raise AzureSearchError(f"{method} {path} failed: {response.status_code} {response.text}")
     if not response.content:

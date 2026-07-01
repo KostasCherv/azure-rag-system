@@ -4,12 +4,13 @@ from contextlib import asynccontextmanager
 
 from ag_ui.core import RunAgentInput
 from fastapi import FastAPI, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .agui import agui_events
 from .config import AppConfig
 from .rag import RagService
+from .readiness import ReadinessService, probe_openai, probe_search
 
 
 class QueryRequest(BaseModel):
@@ -33,6 +34,7 @@ def create_app(
     *,
     config: AppConfig | None = None,
     rag_service: RagService | None = None,
+    readiness_service: ReadinessService | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -41,6 +43,10 @@ def create_app(
         resolved_rag = rag_service if rag_service is not None else RagService(resolved_config)
         app.state.config = resolved_config
         app.state.rag = resolved_rag
+        app.state.readiness = readiness_service or ReadinessService(
+            lambda: probe_search(resolved_config, resolved_rag.credential, resolved_rag.session),
+            lambda: probe_openai(resolved_config, resolved_rag.openai),
+        )
         try:
             yield
         finally:
@@ -50,8 +56,13 @@ def create_app(
     application = FastAPI(title="Azure AI Search RAG Demo", lifespan=lifespan)
 
     @application.get("/health")
-    def health(request: Request) -> dict[str, str]:
-        return {"status": "ok", "index": request.app.state.config.search_index}
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @application.get("/ready")
+    def ready(request: Request) -> JSONResponse:
+        result = request.app.state.readiness.check()
+        return JSONResponse(result.response_body(), status_code=result.http_status)
 
     @application.post("/query", response_model=QueryResponse)
     def query(input_data: QueryRequest, request: Request) -> dict:

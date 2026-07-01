@@ -18,7 +18,7 @@ flowchart LR
     end
 
     subgraph App[Application]
-        API[FastAPI RAG service<br/>/health /query /agui]
+        API[FastAPI RAG service<br/>/health /ready /query /agui]
         Runtime[CopilotKit runtime<br/>Next.js API route]
         UI[Next.js chat UI<br/>CopilotKit React]
     end
@@ -271,10 +271,34 @@ Because the browser calls the local Next.js runtime, `AGENT_URL` is read server-
 
 ### `GET /health`
 
-Returns process health and the configured index name. It does not currently verify live Azure dependencies.
+Returns the stable, unauthenticated process-liveness response `{"status":"ok"}`. This endpoint makes no Azure calls.
 
 ```bash
 curl http://127.0.0.1:8000/health
+```
+
+### `GET /ready`
+
+Checks Azure AI Search and Azure OpenAI using managed identity. The response includes the index document count and normalized latest indexer result. Independent probes have a five-second aggregate deadline, and results are cached for 30 seconds.
+
+It returns HTTP 200 with `ready` when dependencies work and documents are present, HTTP 200 with `degraded` for a failed historical indexer run, or HTTP 503 with `unavailable` when a dependency fails/times out or the index is empty.
+
+```json
+{
+  "status": "ready",
+  "search": {
+    "status": "available",
+    "document_count": 42,
+    "indexer": {
+      "status": "success",
+      "started_at": "2026-01-01T00:00:00Z",
+      "ended_at": "2026-01-01T00:01:00Z",
+      "error": null
+    },
+    "error": null
+  },
+  "openai": {"status": "available", "error": null}
+}
 ```
 
 ### `POST /query`
@@ -347,7 +371,7 @@ The unit tests mock external calls. Running the setup script and submitting a qu
 - Retrieval has no tenant, user, ACL, or metadata filters.
 - Chat requests are synchronous inside the FastAPI process; the AG-UI endpoint wraps the completed answer in streaming protocol events.
 - Conversation history is not persisted and only the latest user message drives each AG-UI run.
-- The health endpoint checks process configuration only, not downstream service readiness.
+- The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
 - There is no rate limiting, retry policy, circuit breaker, cache, evaluation harness, or application telemetry yet.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.
 
