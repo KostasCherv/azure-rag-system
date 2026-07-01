@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import requests
+from azure.core.credentials import TokenCredential
 from openai import OpenAI
 
+from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential, openai_token_provider
 from .config import AppConfig
 
 
@@ -38,9 +40,25 @@ def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str
 
 
 class RagService:
-    def __init__(self, config: AppConfig):
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        credential: TokenCredential | None = None,
+        openai_client: Any | None = None,
+        session: Any = requests,
+    ):
         self.config = config
-        self.openai = OpenAI(base_url=config.openai_base_url, api_key=config.azure_openai_api_key)
+        self.credential = credential if credential is not None else default_credential()
+        self.session = session
+        self.openai = (
+            openai_client
+            if openai_client is not None
+            else OpenAI(
+                base_url=config.openai_base_url,
+                api_key=openai_token_provider(self.credential),
+            )
+        )
 
     def retrieve(self, question: str, top: int = 5) -> list[RetrievedChunk]:
         url = (
@@ -65,9 +83,12 @@ class RagService:
                 }
             ],
         }
-        response = requests.post(
+        response = self.session.post(
             url,
-            headers={"Content-Type": "application/json", "api-key": self.config.search_api_key},
+            headers={
+                "Content-Type": "application/json",
+                **bearer_headers(self.credential, AZURE_SEARCH_SCOPE),
+            },
             json=body,
             timeout=30,
         )
@@ -103,4 +124,3 @@ class RagService:
                 for chunk in chunks
             ],
         }
-

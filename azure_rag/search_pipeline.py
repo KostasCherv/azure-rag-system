@@ -5,8 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import requests
+from azure.core.credentials import TokenCredential
 from azure.storage.blob import BlobServiceClient, ContentSettings
 
+from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential
 from .config import AppConfig
 
 
@@ -14,10 +16,10 @@ class AzureSearchError(RuntimeError):
     """Raised when Azure AI Search returns an unsuccessful response."""
 
 
-def _headers(config: AppConfig) -> dict[str, str]:
+def _headers(credential: TokenCredential) -> dict[str, str]:
     return {
         "Content-Type": "application/json",
-        "api-key": config.search_api_key,
+        **bearer_headers(credential, AZURE_SEARCH_SCOPE),
     }
 
 
@@ -25,8 +27,16 @@ def _url(config: AppConfig, path: str) -> str:
     return f"{config.search_endpoint}{path}?api-version={config.search_api_version}"
 
 
-def _request(config: AppConfig, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-    response = requests.request(method, _url(config, path), headers=_headers(config), timeout=60, **kwargs)
+def _request(
+    config: AppConfig,
+    method: str,
+    path: str,
+    *,
+    credential: TokenCredential,
+    session: Any = requests,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    response = session.request(method, _url(config, path), headers=_headers(credential), timeout=60, **kwargs)
     if response.status_code >= 400:
         raise AzureSearchError(f"{method} {path} failed: {response.status_code} {response.text}")
     if not response.content:
@@ -34,8 +44,14 @@ def _request(config: AppConfig, method: str, path: str, **kwargs: Any) -> dict[s
     return response.json()
 
 
-def upload_sample_docs(config: AppConfig, docs_dir: Path = Path("sample_docs")) -> list[str]:
-    blob_service = BlobServiceClient.from_connection_string(config.storage_connection_string)
+def upload_sample_docs(
+    config: AppConfig,
+    docs_dir: Path = Path("sample_docs"),
+    *,
+    credential: TokenCredential | None = None,
+) -> list[str]:
+    credential = credential if credential is not None else default_credential()
+    blob_service = BlobServiceClient(account_url=config.storage_account_url, credential=credential)
     container = blob_service.get_container_client(config.storage_container)
     try:
         container.create_container()
@@ -54,7 +70,10 @@ def upload_sample_docs(config: AppConfig, docs_dir: Path = Path("sample_docs")) 
     return uploaded
 
 
-def create_or_update_index(config: AppConfig) -> None:
+def create_or_update_index(
+    config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
+) -> None:
+    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.search_index,
         "fields": [
@@ -100,7 +119,6 @@ def create_or_update_index(config: AppConfig) -> None:
                         "resourceUri": config.openai_resource_url,
                         "deploymentId": config.azure_openai_embedding_deployment,
                         "modelName": config.azure_openai_embedding_deployment,
-                        "apiKey": config.azure_openai_api_key,
                     },
                 }
             ],
@@ -119,21 +137,27 @@ def create_or_update_index(config: AppConfig) -> None:
             ],
         },
     }
-    _request(config, "PUT", f"/indexes/{config.search_index}", json=body)
+    _request(config, "PUT", f"/indexes/{config.search_index}", credential=credential, session=session, json=body)
 
 
-def create_or_update_data_source(config: AppConfig) -> None:
+def create_or_update_data_source(
+    config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
+) -> None:
+    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.data_source_name,
         "type": "azureblob",
-        "credentials": {"connectionString": config.storage_connection_string},
+        "credentials": {"connectionString": f"ResourceId={config.storage_resource_id};"},
         "container": {"name": config.storage_container},
         "dataChangeDetectionPolicy": {"@odata.type": "#Microsoft.Azure.Search.HighWaterMarkChangeDetectionPolicy", "highWaterMarkColumnName": "metadata_storage_last_modified"},
     }
-    _request(config, "PUT", f"/datasources/{config.data_source_name}", json=body)
+    _request(config, "PUT", f"/datasources/{config.data_source_name}", credential=credential, session=session, json=body)
 
 
-def create_or_update_skillset(config: AppConfig) -> None:
+def create_or_update_skillset(
+    config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
+) -> None:
+    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.skillset_name,
         "description": "Split sample documents into chunks and embed them with Azure OpenAI inside Azure AI Search.",
@@ -154,7 +178,6 @@ def create_or_update_skillset(config: AppConfig) -> None:
                 "name": "embed-chunks",
                 "context": "/document/pages/*",
                 "resourceUri": config.openai_resource_url,
-                "apiKey": config.azure_openai_api_key,
                 "deploymentId": config.azure_openai_embedding_deployment,
                 "modelName": config.azure_openai_embedding_deployment,
                 "dimensions": config.embedding_dimensions,
@@ -179,10 +202,13 @@ def create_or_update_skillset(config: AppConfig) -> None:
             "parameters": {"projectionMode": "skipIndexingParentDocuments"},
         },
     }
-    _request(config, "PUT", f"/skillsets/{config.skillset_name}", json=body)
+    _request(config, "PUT", f"/skillsets/{config.skillset_name}", credential=credential, session=session, json=body)
 
 
-def create_or_update_indexer(config: AppConfig) -> None:
+def create_or_update_indexer(
+    config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
+) -> None:
+    credential = credential if credential is not None else default_credential()
     body = {
         "name": config.indexer_name,
         "dataSourceName": config.data_source_name,
@@ -198,18 +224,25 @@ def create_or_update_indexer(config: AppConfig) -> None:
             },
         },
     }
-    _request(config, "PUT", f"/indexers/{config.indexer_name}", json=body)
+    _request(config, "PUT", f"/indexers/{config.indexer_name}", credential=credential, session=session, json=body)
 
 
-def run_indexer(config: AppConfig, wait: bool = True) -> dict[str, Any]:
-    _request(config, "POST", f"/indexers/{config.indexer_name}/run")
+def run_indexer(
+    config: AppConfig,
+    wait: bool = True,
+    *,
+    credential: TokenCredential | None = None,
+    session: Any = requests,
+) -> dict[str, Any]:
+    credential = credential if credential is not None else default_credential()
+    _request(config, "POST", f"/indexers/{config.indexer_name}/run", credential=credential, session=session)
     if not wait:
         return {}
 
     deadline = time.time() + 180
     status: dict[str, Any] = {}
     while time.time() < deadline:
-        status = _request(config, "GET", f"/indexers/{config.indexer_name}/status")
+        status = _request(config, "GET", f"/indexers/{config.indexer_name}/status", credential=credential, session=session)
         last = status.get("lastResult") or {}
         if last.get("status") in {"success", "transientFailure", "persistentFailure"}:
             return status
@@ -217,12 +250,19 @@ def run_indexer(config: AppConfig, wait: bool = True) -> dict[str, Any]:
     return status
 
 
-def setup_pipeline(config: AppConfig, upload_samples: bool = True, run: bool = True) -> dict[str, Any]:
-    uploaded = upload_sample_docs(config) if upload_samples else []
-    create_or_update_index(config)
-    create_or_update_data_source(config)
-    create_or_update_skillset(config)
-    create_or_update_indexer(config)
-    status = run_indexer(config) if run else {}
+def setup_pipeline(
+    config: AppConfig,
+    upload_samples: bool = True,
+    run: bool = True,
+    *,
+    credential: TokenCredential | None = None,
+    session: Any = requests,
+) -> dict[str, Any]:
+    credential = credential if credential is not None else default_credential()
+    uploaded = upload_sample_docs(config, credential=credential) if upload_samples else []
+    create_or_update_index(config, credential=credential, session=session)
+    create_or_update_data_source(config, credential=credential, session=session)
+    create_or_update_skillset(config, credential=credential, session=session)
+    create_or_update_indexer(config, credential=credential, session=session)
+    status = run_indexer(config, credential=credential, session=session) if run else {}
     return {"uploaded": uploaded, "indexer_status": status}
-

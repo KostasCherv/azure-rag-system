@@ -13,14 +13,13 @@ class ConfigError(RuntimeError):
 @dataclass(frozen=True)
 class AppConfig:
     azure_openai_endpoint: str
-    azure_openai_api_key: str
     azure_openai_chat_deployment: str
     azure_openai_embedding_deployment: str
     search_endpoint: str
-    search_api_key: str
     search_index: str
-    storage_connection_string: str
+    storage_account_url: str
     storage_container: str
+    storage_resource_id: str
     embedding_dimensions: int = 1536
     search_api_version: str = "2026-05-01-preview"
 
@@ -30,14 +29,13 @@ class AppConfig:
             load_dotenv()
         required = {
             "AZURE_OPENAI_ENDPOINT": os.getenv("AZURE_OPENAI_ENDPOINT"),
-            "AZURE_OPENAI_API_KEY": os.getenv("AZURE_OPENAI_API_KEY"),
             "AZURE_OPENAI_CHAT_DEPLOYMENT": os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
             "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
             "AZURE_SEARCH_ENDPOINT": os.getenv("AZURE_SEARCH_ENDPOINT"),
-            "AZURE_SEARCH_API_KEY": os.getenv("AZURE_SEARCH_API_KEY"),
             "AZURE_SEARCH_INDEX": os.getenv("AZURE_SEARCH_INDEX"),
-            "AZURE_STORAGE_CONNECTION_STRING": os.getenv("AZURE_STORAGE_CONNECTION_STRING"),
+            "AZURE_STORAGE_ACCOUNT_URL": os.getenv("AZURE_STORAGE_ACCOUNT_URL"),
             "AZURE_STORAGE_CONTAINER": os.getenv("AZURE_STORAGE_CONTAINER"),
+            "AZURE_STORAGE_RESOURCE_ID": os.getenv("AZURE_STORAGE_RESOURCE_ID"),
         }
         missing = [key for key, value in required.items() if not value]
         if missing:
@@ -46,14 +44,13 @@ class AppConfig:
 
         return cls(
             azure_openai_endpoint=required["AZURE_OPENAI_ENDPOINT"].rstrip("/"),
-            azure_openai_api_key=required["AZURE_OPENAI_API_KEY"],
             azure_openai_chat_deployment=required["AZURE_OPENAI_CHAT_DEPLOYMENT"],
             azure_openai_embedding_deployment=required["AZURE_OPENAI_EMBEDDING_DEPLOYMENT"],
             search_endpoint=required["AZURE_SEARCH_ENDPOINT"].rstrip("/"),
-            search_api_key=required["AZURE_SEARCH_API_KEY"],
             search_index=required["AZURE_SEARCH_INDEX"],
-            storage_connection_string=required["AZURE_STORAGE_CONNECTION_STRING"],
+            storage_account_url=required["AZURE_STORAGE_ACCOUNT_URL"].rstrip("/"),
             storage_container=required["AZURE_STORAGE_CONTAINER"],
+            storage_resource_id=required["AZURE_STORAGE_RESOURCE_ID"],
         )
 
     @property

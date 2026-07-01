@@ -2,7 +2,7 @@
 
 An Azure-native retrieval-augmented generation (RAG) application that uses Azure AI Search for the full document retrieval pipeline: Blob ingestion, chunking, integrated embeddings, vector indexing, semantic ranking, and hybrid search. FastAPI exposes the RAG service through JSON and AG-UI endpoints, while a Next.js and CopilotKit interface provides the browser experience.
 
-The project intentionally uses API keys and has no user authentication yet. See [Production Roadmap](#production-roadmap) before deploying it outside a learning or development environment.
+Azure service-to-service access uses managed identities and RBAC. End-user authentication is not implemented yet; see [Production Roadmap](#production-roadmap) before deploying outside a learning or development environment.
 
 ## Architecture
 
@@ -149,25 +149,49 @@ main.py               Alternate setup entry point
 
 ## Configuration
 
-Copy `.env.example` to `.env` and provide the missing secrets and resource endpoints:
+Copy `.env.example` to `.env` and provide the resource endpoints, deployment names, and Azure resource ID. No API keys or storage connection strings are required:
 
 ```env
 AZURE_OPENAI_ENDPOINT=https://kostas-demo-rag-resource.openai.azure.com/openai/v1
-AZURE_OPENAI_API_KEY=...
 AZURE_OPENAI_CHAT_DEPLOYMENT=Llama-3.3-70B-Instruct
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-3-small
 
 AZURE_SEARCH_ENDPOINT=https://rag-system.search.windows.net
-AZURE_SEARCH_API_KEY=...
 AZURE_SEARCH_INDEX=kostas-demo-rag-index
 
-AZURE_STORAGE_CONNECTION_STRING=...
+AZURE_STORAGE_ACCOUNT_URL=https://kostasdemoragdocs21847.blob.core.windows.net
 AZURE_STORAGE_CONTAINER=sample-docs
+AZURE_STORAGE_RESOURCE_ID=/subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/kostasdemoragdocs21847
 ```
 
 `AZURE_OPENAI_ENDPOINT` accepts either the Azure OpenAI resource URL or its `/openai/v1` URL. The application derives the correct URL for chat calls and Azure AI Search integrated vectorization.
 
-Keep `.env` out of source control. The checked-in `.env.example` contains names and placeholders only.
+`AZURE_STORAGE_ACCOUNT_URL` is used by the setup process to upload sample documents with Microsoft Entra authentication. `AZURE_STORAGE_RESOURCE_ID` is written to the Search Blob data source as a `ResourceId=...;` connection string; it identifies the account without containing a storage secret.
+
+Keep `.env` out of source control. The checked-in `.env.example` contains resource names and placeholders only.
+
+## Authentication
+
+The application and setup command use `DefaultAzureCredential`. In Azure, configure a system-assigned or user-assigned managed identity on the application host. For local development, sign in with a supported developer credential such as Azure CLI (`az login`); `DefaultAzureCredential` selects the available identity automatically.
+
+Azure OpenAI calls use the v1 endpoint and a bearer-token provider for `https://cognitiveservices.azure.com/.default`. Azure AI Search data-plane and management REST calls request `https://search.azure.com/.default`. Blob uploads pass the same token credential directly to `BlobServiceClient`.
+
+Azure AI Search itself uses its system-assigned managed identity for two indexing-time dependencies: reading the Blob data source and calling Azure OpenAI for vectorization and the embedding skill. The vectorizer and skillset deliberately omit both `apiKey` and `authIdentity`; omission selects the Search service's system-assigned identity.
+
+## RBAC
+
+Assign only the roles needed by each identity:
+
+| Identity | Resource scope | Required role | Purpose |
+|---|---|---|---|
+| Application/setup managed identity | Azure AI Search service | `Search Index Data Reader` | Run retrieval queries against the index |
+| Setup managed identity | Azure AI Search service | `Search Service Contributor` | Create and update indexes, data sources, skillsets, and indexers |
+| Setup managed identity | Storage account or source container | `Storage Blob Data Contributor` | Create the container when needed and upload sample documents |
+| Azure AI Search system-assigned identity | Storage account or source container | `Storage Blob Data Reader` | Read source documents during indexing |
+| Application/setup managed identity | Azure OpenAI resource | `Cognitive Services OpenAI User` | Generate grounded chat answers |
+| Azure AI Search system-assigned identity | Azure OpenAI resource | `Cognitive Services OpenAI User` | Run query-time vectorization and index-time embedding |
+
+If the runtime and setup command use separate managed identities, do not grant the runtime identity the setup-only contributor roles. Role assignments can take several minutes to propagate.
 
 ## Install
 
@@ -316,8 +340,7 @@ The unit tests mock external calls. Running the setup script and submitting a qu
 
 ## Current Scope and Limitations
 
-- Authentication and authorization are intentionally absent.
-- Secrets use API keys and a storage connection string rather than managed identity.
+- Azure service authentication uses Microsoft Entra bearer tokens, managed identities, and RBAC; end-user authentication and authorization are intentionally absent.
 - Search resources are managed by application code, but the underlying Azure infrastructure is manually provisioned.
 - Indexing is manually triggered and has no recurring schedule.
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
@@ -332,7 +355,6 @@ The unit tests mock external calls. Running the setup script and submitting a qu
 
 | Priority | Addition | Why it matters |
 |---|---|---|
-| P0 | Microsoft Entra ID, managed identities, and RBAC | Removes long-lived API keys and storage connection strings |
 | P0 | User authentication, authorization, rate limits, and request-size limits | Protects public API and UI surfaces |
 | P0 | Infrastructure as code with separate environments | Reproducibly provisions Search, storage, networking, deployments, identities, and diagnostics |
 | P0 | Private endpoints, restricted public access, Key Vault, and secret rotation | Establishes a production network and secret boundary |

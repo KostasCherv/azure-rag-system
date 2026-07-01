@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ag-ui-protocol>=0.1.19",
+    "azure-identity>=1.19",
     "azure-storage-blob>=12.20",
     "fastapi>=0.115",
     "openai>=2.0",

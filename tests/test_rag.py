@@ -1,4 +1,79 @@
-from azure_rag.rag import RetrievedChunk, build_messages
+from azure_rag.auth import AZURE_SEARCH_SCOPE
+from azure_rag.config import AppConfig
+from azure_rag.rag import RagService, RetrievedChunk, build_messages
+
+
+def config():
+    return AppConfig(
+        azure_openai_endpoint="https://example.openai.azure.com",
+        azure_openai_chat_deployment="chat",
+        azure_openai_embedding_deployment="embedding",
+        search_endpoint="https://example.search.windows.net",
+        search_index="rag-index",
+        storage_account_url="https://storage.blob.core.windows.net",
+        storage_container="docs",
+        storage_resource_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
+    )
+
+
+class FakeCredential:
+    def __init__(self):
+        self.scopes = []
+
+    def get_token(self, *scopes):
+        self.scopes.append(scopes)
+        return type("Token", (), {"token": "search-token"})()
+
+
+class FakeResponse:
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"value": [{"title": "doc", "chunk": "text", "source_path": "doc.md", "@search.score": 1.0}]}
+
+
+class FakeSession:
+    def __init__(self):
+        self.calls = []
+
+    def post(self, url, **kwargs):
+        self.calls.append((url, kwargs))
+        return FakeResponse()
+
+
+def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
+    credential = FakeCredential()
+    session = FakeSession()
+    openai_client = object()
+    service = RagService(config(), credential=credential, openai_client=openai_client, session=session)
+
+    chunks = service.retrieve("question", top=3)
+
+    assert service.openai is openai_client
+    assert chunks[0].title == "doc"
+    _, request = session.calls[0]
+    assert request["headers"] == {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer search-token",
+    }
+    assert "api-key" not in request["headers"]
+    assert credential.scopes == [(AZURE_SEARCH_SCOPE,)]
+
+
+def test_rag_service_constructs_v1_openai_client_with_token_provider(monkeypatch):
+    captured = {}
+    credential = FakeCredential()
+
+    monkeypatch.setattr("azure_rag.rag.openai_token_provider", lambda value: "token-provider")
+    monkeypatch.setattr("azure_rag.rag.OpenAI", lambda **kwargs: captured.update(kwargs) or object())
+
+    RagService(config(), credential=credential, session=FakeSession())
+
+    assert captured == {
+        "base_url": "https://example.openai.azure.com/openai/v1/",
+        "api_key": "token-provider",
+    }
 
 
 def test_build_messages_include_context_citations_and_question():
