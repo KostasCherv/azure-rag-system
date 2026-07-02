@@ -45,4 +45,13 @@ describe("status route", () => {
     delete process.env.AGENT_URL;
     delete process.env.READY_URL;
   });
+
+  it("calls readiness without Authorization when APIM token is unavailable", async () => {
+    const fetcher = vi.fn(async (_url, init) => {
+      expect(init?.headers).toEqual({ Accept: "application/json" });
+      return new Response(JSON.stringify({ status: "ready", search: { status: "available", indexer: { status: "success", ended_at: "2026-01-01T00:00:00Z" } }, openai: { status: "available" } }), { status: 200 });
+    });
+    const response = await createStatusHandler({ getToken: async () => null, fetcher, getUrl: () => "http://127.0.0.1:8000/ready" })();
+    expect(response.status).toBe(200);
+  });
 });

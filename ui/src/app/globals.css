@@ -29,6 +29,12 @@ button, textarea { font: inherit; }
   min-height: 560px;
 }
 
+.console-main {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
 .console-header {
   display: flex;
   align-items: center;
@@ -74,6 +80,7 @@ button, textarea { font: inherit; }
 
 .chat-workspace {
   min-height: 0;
+  height: 100%;
   padding: 16px;
 }
 
@@ -92,6 +99,7 @@ button, textarea { font: inherit; }
   .console-shell { grid-template-rows: 58px minmax(0, 1fr); min-height: 480px; }
   .console-header { padding: 0 14px; }
   .service-strip span:not(.status) { display: none; }
+  .status-strip { padding: 6px 14px; }
   .chat-workspace { padding: 0; }
   .chat-workspace > * { border: 0; border-radius: 0; box-shadow: none; }
 }

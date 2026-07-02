@@ -24,6 +24,7 @@ export default function Home() {
       <StatusGate>
         <CopilotChat
           agentId="default"
+          welcomeScreen
           labels={{
             modalHeaderTitle: "RAG assistant",
             welcomeMessageText: "Ask a question about the indexed Contoso documents.",

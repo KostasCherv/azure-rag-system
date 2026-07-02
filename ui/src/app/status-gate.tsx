@@ -31,13 +31,15 @@ export function StatusGate({ children }: { children: ReactNode }) {
 
   const label = status.status === "ready" ? "Connected" : status.status[0].toUpperCase() + status.status.slice(1);
   const timestamp = status.indexer?.time ? new Date(status.indexer.time).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
-  return <>
-    <div className="service-strip status-strip" aria-live="polite">
-      <span className={`status status-${status.status}`}><i aria-hidden="true" /> {label}</span>
-      {status.indexer && <span className="indexer-status">Indexer: {status.indexer.outcome}{timestamp ? ` · ${timestamp}` : ""}</span>}
-    </div>
-    <section className="chat-workspace" aria-label="RAG assistant">
-      {status.status === "ready" ? children : <div className="chat-placeholder">The RAG assistant is {status.status}. Please check again shortly.</div>}
+  return (
+    <section className="console-main">
+      <div className="service-strip status-strip" aria-live="polite">
+        <span className={`status status-${status.status}`}><i aria-hidden="true" /> {label}</span>
+        {status.indexer && <span className="indexer-status">Indexer: {status.indexer.outcome}{timestamp ? ` · ${timestamp}` : ""}</span>}
+      </div>
+      <section className="chat-workspace" aria-label="RAG assistant">
+        {status.status === "ready" ? children : <div className="chat-placeholder">The RAG assistant is {status.status}. Please check again shortly.</div>}
+      </section>
     </section>
-  </>;
+  );
 }

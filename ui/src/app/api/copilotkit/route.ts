@@ -12,7 +12,7 @@ import { getApimToken } from "@/lib/server-auth";
 const serviceAdapter = new ExperimentalEmptyAdapter();
 
 type Dependencies = {
-  getToken: () => Promise<string>;
+  getToken: () => Promise<string | null>;
   getUrl: () => string;
   makeAgent: (url: string, headers: Record<string, string>) => HttpAgent;
   makeEndpoint: typeof copilotRuntimeNextJSAppRouterEndpoint;
@@ -21,9 +21,10 @@ type Dependencies = {
 export function createPostHandler(deps: Dependencies) {
   return async (request: NextRequest) => {
     const token = await deps.getToken();
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
     const runtime = new CopilotRuntime({
       agents: {
-        default: deps.makeAgent(deps.getUrl(), { Authorization: `Bearer ${token}` }),
+        default: deps.makeAgent(deps.getUrl(), headers),
       },
     });
     const { handleRequest } = deps.makeEndpoint({

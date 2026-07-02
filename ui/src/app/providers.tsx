@@ -7,6 +7,7 @@ export function Providers({ children }: { children: ReactNode }) {
   return (
     <CopilotKit
       runtimeUrl="/api/copilotkit"
+      useSingleEndpoint
       agent="default"
       showDevConsole={false}
       enableInspector={false}

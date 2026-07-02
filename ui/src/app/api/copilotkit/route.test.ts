@@ -21,4 +21,11 @@ describe("copilot route", () => {
     expect(makeAgent).toHaveBeenNthCalledWith(1, "https://example.test/agui", { Authorization: "Bearer first" });
     expect(makeAgent).toHaveBeenNthCalledWith(2, "https://example.test/agui", { Authorization: "Bearer second" });
   });
+
+  it("omits Authorization header when APIM token is unavailable", async () => {
+    const makeAgent = vi.fn(() => ({} as never));
+    const post = createPostHandler({ getToken: async () => null, makeAgent, makeEndpoint: vi.fn(() => ({ handleRequest: async () => new Response("ok") })) as never, getUrl: () => "https://example.test/agui" });
+    await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
+    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", {});
+  });
 });
