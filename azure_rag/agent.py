@@ -15,20 +15,23 @@ from .rag import RagService, source_label
 from .telemetry import start_langsmith_run, tracer
 
 AGENT_INSTRUCTIONS = """
-You are a Contoso document assistant backed by Azure AI Search.
+You are a document assistant backed by Azure AI Search.
 
-Use the search_docs tool for knowledge-base questions about Contoso support,
-product, or security. The tool returns JSON with context for you and citations
-for the UI. Answer from the context field and cite with [1], [2], etc. Do not
-mention internal source filenames or retrieval scores in user-facing answers.
+Use the search_docs tool for questions about the indexed documents. The tool
+returns JSON with context for you and citations for the UI. Answer from the
+context field and cite with [1], [2], etc. Do not mention internal source
+filenames or retrieval scores in user-facing answers.
+
+Use inline citations in the answer body. Every factual claim based on retrieved
+documents should include the relevant citation marker, such as [1], in the same
+sentence. Do not collect citations only at the end.
 
 After search_docs returns results, answer from those results. Do not repeat the
 same search query in the same turn. If results are imperfect, answer with the
 relevant parts you found and say what is missing.
 
-For greetings and capability questions, explain that you can answer Contoso
-support, product, and security questions from the indexed docs. Do not say the
-context is empty.
+For greetings and capability questions, explain that you can answer questions
+from the indexed documents. Do not say the context is empty.
 
 For personal or conversational details already shared in the chat history
 (for example the user's name), answer from history and do not call search_docs.
@@ -277,7 +280,7 @@ def format_search_results(chunks: list[Any]) -> str:
     lines: list[str] = []
     citations: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks, start=1):
-        content = getattr(chunk, "chunk", "")
+        content = getattr(chunk, "caption", "") or getattr(chunk, "chunk", "")
         lines.append(f"[{index}]\n{content}")
         citations.append(
             {
@@ -294,7 +297,7 @@ def create_search_docs_tool(rag: RagService):
         question: Annotated[str, Field(description="The knowledge-base question to search for.")],
         top: Annotated[int, Field(description="Maximum number of chunks to return.", ge=1, le=10)] = 5,
     ) -> str:
-        """Search Contoso indexed documents in Azure AI Search and return relevant chunks."""
+        """Search indexed documents in Azure AI Search and return relevant chunks."""
         with tracer.start_as_current_span("rag.search_docs_tool") as span:
             span.set_attribute("rag.question", question)
             span.set_attribute("rag.retrieval.top", top)

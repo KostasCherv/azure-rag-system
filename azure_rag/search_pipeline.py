@@ -12,6 +12,11 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential
 from .config import AppConfig
 
+SUPPORTED_SAMPLE_DOC_TYPES = {
+    ".md": "text/markdown; charset=utf-8",
+    ".pdf": "application/pdf",
+}
+
 
 class AzureSearchError(RuntimeError):
     """Raised when Azure AI Search returns an unsuccessful response."""
@@ -101,12 +106,17 @@ def upload_sample_docs(
             pass
 
         uploaded: list[str] = []
-        for path in sorted(docs_dir.glob("*.md")):
+        paths = [
+            path
+            for path in sorted(docs_dir.iterdir())
+            if path.is_file() and path.suffix.lower() in SUPPORTED_SAMPLE_DOC_TYPES
+        ]
+        for path in paths:
             blob = container.get_blob_client(path.name)
             blob.upload_blob(
-                path.read_text(encoding="utf-8"),
+                path.read_bytes(),
                 overwrite=True,
-                content_settings=ContentSettings(content_type="text/markdown; charset=utf-8"),
+                content_settings=ContentSettings(content_type=SUPPORTED_SAMPLE_DOC_TYPES[path.suffix.lower()]),
             )
             uploaded.append(path.name)
         return uploaded

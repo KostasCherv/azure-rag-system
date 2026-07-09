@@ -71,10 +71,11 @@ def test_format_search_results_numbers_chunks():
     text = format_search_results(
         [
             RetrievedChunk(
-                title="contoso-security.md",
-                chunk="Data is encrypted at rest.",
-                source_path="contoso-security.md",
+                title="product-manual.pdf",
+                chunk="Long surrounding page text.",
+                source_path="product-manual.pdf",
                 score=2.4,
+                caption="Data is encrypted at rest.",
             )
         ]
     )
@@ -84,11 +85,11 @@ def test_format_search_results_numbers_chunks():
     assert payload["citations"] == [
         {
             "id": 1,
-            "document": "contoso-security.md",
+            "document": "product-manual.pdf",
             "chunk": "Data is encrypted at rest.",
         }
     ]
-    assert "contoso-security.md" not in payload["context"]
+    assert "product-manual.pdf" not in payload["context"]
     assert "score=2.4" not in text
 
 
@@ -103,9 +104,9 @@ def test_search_docs_tool_uses_rag_retrieve():
             assert top == 3
             return [
                 RetrievedChunk(
-                    title="contoso-security.md",
+                    title="product-manual.pdf",
                     chunk="Encrypted at rest.",
-                    source_path="contoso-security.md",
+                    source_path="product-manual.pdf",
                     score=2.5,
                 )
             ]
@@ -115,26 +116,26 @@ def test_search_docs_tool_uses_rag_retrieve():
     payload = json.loads(result)
 
     assert "[1]" in result
-    assert "contoso-security.md" not in payload["context"]
+    assert "product-manual.pdf" not in payload["context"]
     assert "Encrypted at rest." in result
 
 
 def test_final_answer_text_ignores_tool_context_messages():
     response = SimpleNamespace(
-        text="[1] contoso-product.md score=2.4\nraw context",
+        text="[1] product-manual.pdf score=2.4\nraw context",
         messages=[
             SimpleNamespace(
                 role="assistant",
-                contents=[SimpleNamespace(type="text", text="[1] contoso-product.md score=2.4\nraw context")],
+                contents=[SimpleNamespace(type="text", text="[1] product-manual.pdf score=2.4\nraw context")],
             ),
             SimpleNamespace(
                 role="assistant",
-                contents=[SimpleNamespace(type="text", text="Contoso Analytics monitors support queues [1].")],
+                contents=[SimpleNamespace(type="text", text="The product supports app control [1].")],
             ),
         ],
     )
 
-    assert final_answer_text(response) == "Contoso Analytics monitors support queues [1]."
+    assert final_answer_text(response) == "The product supports app control [1]."
 
 
 def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
@@ -152,9 +153,9 @@ def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
         def retrieve(self, question, top=5):
             return [
                 RetrievedChunk(
-                    title="contoso-security.md",
+                    title="product-manual.pdf",
                     chunk="Encrypted at rest.",
-                    source_path="contoso-security.md",
+                    source_path="product-manual.pdf",
                     score=2.5,
                 )
             ]
@@ -183,9 +184,9 @@ def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
             self.calls += 1
             return [
                 RetrievedChunk(
-                    title="contoso-product.md",
+                    title="product-manual.pdf",
                     chunk="Product details.",
-                    source_path="contoso-product.md",
+                    source_path="product-manual.pdf",
                     score=3.0,
                 )
             ]
@@ -195,8 +196,8 @@ def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
     tool = create_search_docs_tool(rag)
     token = agent_module._search_queries.set(set())
     try:
-        first = tool(question="Contoso Analytics product information", top=5)
-        second = tool(question="Contoso Analytics product information", top=5)
+        first = tool(question="product information", top=5)
+        second = tool(question="product information", top=5)
     finally:
         agent_module._search_queries.reset(token)
 
@@ -257,7 +258,7 @@ def test_langsmith_run_middleware_groups_streamed_user_query(monkeypatch):
     monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
     middleware = LangSmithRunTelemetryMiddleware("chat")
     context = SimpleNamespace(
-        messages=[SimpleNamespace(text="What does Contoso encrypt?")],
+        messages=[SimpleNamespace(text="What does the manual say about encryption?")],
         stream=True,
         stream_result_hooks=[],
     )
@@ -266,17 +267,17 @@ def test_langsmith_run_middleware_groups_streamed_user_query(monkeypatch):
         return None
 
     anyio.run(middleware.process, context, call_next)
-    response = SimpleNamespace(text="Contoso encrypts data at rest.")
+    response = SimpleNamespace(text="The manual says data is encrypted at rest.")
     returned = anyio.run(context.stream_result_hooks[0], response)
 
     assert returned is response
     assert ended[0]["started"]["name"] == "RAG Request"
     assert ended[0]["started"]["run_type"] == "chain"
     assert ended[0]["started"]["inputs"] == {
-        "question": "What does Contoso encrypt?",
+        "question": "What does the manual say about encryption?",
         "message_count": 1,
     }
-    assert ended[1] == {"outputs": {"answer": "Contoso encrypts data at rest."}}
+    assert ended[1] == {"outputs": {"answer": "The manual says data is encrypted at rest."}}
 
 
 def test_create_rag_agent_registers_search_tool(monkeypatch):
@@ -299,6 +300,9 @@ def test_create_rag_agent_registers_search_tool(monkeypatch):
     agent = create_rag_agent(config(), SimpleNamespace(credential=object()))
 
     assert agent.name == "azure-rag-agent"
-    assert "search_docs" in agent.instructions or "Contoso" in agent.instructions
+    assert "search_docs" in agent.instructions
+    assert "indexed documents" in agent.instructions
+    assert "Use inline citations in the answer body" in agent.instructions
+    assert "Do not collect citations only at the end" in agent.instructions
     assert callable(captured["tools"][0])
     assert captured["tools"][0].__name__ == "search_docs"

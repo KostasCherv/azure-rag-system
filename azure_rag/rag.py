@@ -22,6 +22,7 @@ class RetrievedChunk:
     chunk: str
     source_path: str
     score: float | None = None
+    caption: str = ""
 
 
 def source_label(chunk: RetrievedChunk) -> str:
@@ -125,6 +126,7 @@ class RagService:
                         chunk=item.get("chunk", ""),
                         source_path=item.get("source_path", ""),
                         score=item.get("@search.rerankerScore") or item.get("@search.score"),
+                        caption=((item.get("@search.captions") or [{}])[0].get("text") or ""),
                     )
                     for item in results
                 ]

@@ -100,6 +100,40 @@ def test_upload_constructs_blob_client_with_account_url_and_credential(monkeypat
     assert credential.closed is False
 
 
+def test_upload_includes_markdown_and_pdf_with_content_types(tmp_path: Path):
+    (tmp_path / "sample.md").write_text("hello", encoding="utf-8")
+    (tmp_path / "manual.PDF").write_bytes(b"%PDF-1.7")
+    (tmp_path / "notes.txt").write_text("skip", encoding="utf-8")
+    uploads = {}
+
+    class Blob:
+        def __init__(self, name):
+            self.name = name
+
+        def upload_blob(self, data, **kwargs):
+            uploads[self.name] = (data, kwargs["content_settings"].content_type)
+
+    class Service:
+        def get_container_client(self, name):
+            return type(
+                "Container",
+                (),
+                {
+                    "create_container": lambda self: None,
+                    "get_blob_client": lambda self, name: Blob(name),
+                },
+            )()
+
+    assert search_pipeline.upload_sample_docs(config(), tmp_path, blob_service_client=Service()) == [
+        "manual.PDF",
+        "sample.md",
+    ]
+    assert uploads == {
+        "manual.PDF": (b"%PDF-1.7", "application/pdf"),
+        "sample.md": (b"hello", "text/markdown; charset=utf-8"),
+    }
+
+
 def test_upload_does_not_close_injected_blob_client_or_credential(tmp_path: Path):
     (tmp_path / "sample.md").write_text("hello", encoding="utf-8")
     credential = FakeCredential()

@@ -9,7 +9,7 @@ Azure service-to-service access uses managed identities and least-privilege RBAC
 ```mermaid
 flowchart LR
     subgraph Azure[Azure]
-        Blob[Azure Blob Storage<br/>Markdown source documents]
+        Blob[Azure Blob Storage<br/>Markdown and PDF source documents]
         Search[Azure AI Search]
         Indexer[Blob indexer]
         Skills[Skillset<br/>Text Split + Azure OpenAI Embedding]
@@ -50,7 +50,7 @@ sequenceDiagram
     participant Embed as Azure OpenAI Embeddings
     participant Index as Search Index
 
-    Setup->>Blob: Upload sample_docs/*.md
+    Setup->>Blob: Upload sample_docs/*.md and *.pdf
     Setup->>Search: PUT index
     Setup->>Search: PUT Blob data source
     Setup->>Search: PUT skillset
@@ -97,7 +97,7 @@ sequenceDiagram
 
 | Component | Implementation | Responsibility | Current features |
 |---|---|---|---|
-| Source storage | Azure Blob Storage | Durable source-document store | Existing container support; sample Markdown upload; overwrite on rerun |
+| Source storage | Azure Blob Storage | Durable source-document store | Existing container support; sample Markdown/PDF upload; overwrite on rerun |
 | Search index | Azure AI Search | Stores retrievable chunks and vectors | HNSW cosine vector search; 1536 dimensions; semantic configuration; filterable source metadata |
 | Data source | Azure AI Search Blob data source | Connects Search to the Blob container | High-water-mark change detection based on Blob last-modified metadata |
 | Skillset | Azure AI Search integrated vectorization | Enriches documents during indexing | 1,800-character page chunks; 250-character overlap; Azure OpenAI embedding skill; index projections |
@@ -164,7 +164,7 @@ azure_rag/
   rag.py              Hybrid retrieval, prompting, and answer generation
   api.py              FastAPI routes and request/response models
   agent.py            Agent Framework agent + search_docs tool
-sample_docs/          Sample Markdown knowledge base
+sample_docs/          Sample Markdown/PDF knowledge base
 scripts/
   setup_azure_rag.py  Pipeline setup entry point
 tests/                Backend unit tests
@@ -265,7 +265,7 @@ uv run python main.py
 
 The command is designed to be rerunnable. It:
 
-1. Uploads `sample_docs/*.md` to the configured Blob container.
+1. Uploads `sample_docs/*.md` and `sample_docs/*.pdf` to the configured Blob container.
 2. Creates or updates the vector and semantic index.
 3. Creates or updates the Blob data source.
 4. Creates or updates the split-and-embed skillset.
@@ -359,7 +359,7 @@ curl -N -X POST http://127.0.0.1:8000/agui \
     "messages": [{
       "id": "msg-1",
       "role": "user",
-      "content": "What is the Premium support response time?"
+      "content": "What maintenance does the product manual recommend?"
     }],
     "tools": [],
     "context": [],
@@ -384,7 +384,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - APIM authenticates the deployed UI workload identity/application. Interactive end-user identity, per-user authorization, and tenant/document ACL enforcement are not implemented.
 - Bicep provisions the application network, Container Apps, APIM, identities, policies, and RBAC. Search, OpenAI/model deployments, Storage, Entra app registrations, and the deployment resource group remain prerequisites.
 - Indexing is manually triggered and has no recurring schedule.
-- The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
+- The index schema is specialized for extracted text; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
 - `/agui` is the only chat endpoint and is hosted by Agent Framework AG-UI streaming; the agent decides when to call `search_docs`.
 - Client disconnect cancellation of upstream generation is not implemented yet.

@@ -49,6 +49,7 @@ class FakeResponse:
                     "title": "doc",
                     "chunk": "text",
                     "source_path": "doc.md",
+                    "@search.captions": [{"text": "caption text"}],
                     "@search.rerankerScore": 2.5,
                 }
             ]
@@ -111,6 +112,7 @@ def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
 
     assert service.openai is openai_client
     assert chunks[0].title == "doc"
+    assert chunks[0].caption == "caption text"
     _, request = session.calls[0]
     assert request["headers"] == {
         "Content-Type": "application/json",
@@ -194,11 +196,11 @@ def test_source_label_falls_back_to_source_filename_when_title_missing():
         RetrievedChunk(
             title="",
             chunk="text",
-            source_path="/sample-docs/contoso-support.md",
+            source_path="/sample-docs/product-manual.pdf",
             score=2.4,
         )
     )
-    assert label == "contoso-support.md"
+    assert label == "product-manual.pdf"
 
 
 def test_retrieve_filters_out_low_scoring_chunks():
