@@ -1,21 +1,10 @@
-import Link from "next/link";
-import { Bot } from "lucide-react";
 import { CorpusPanel } from "./corpus-panel";
+import { ConsoleHeader } from "../console-header";
 
 export default function CorpusPage() {
   return (
     <main className="console-shell">
-      <header className="console-header">
-        <div className="brand">
-          <span className="brand-mark" aria-hidden="true">
-            <Bot size={19} strokeWidth={1.8} />
-          </span>
-          <div>
-            <h1>Corpus Browser</h1>
-          </div>
-        </div>
-        <Link href="/">Back to chat</Link>
-      </header>
+      <ConsoleHeader title="Corpus Browser" variant="corpus" activePage="corpus" />
       <section className="console-main">
         <div className="chat-workspace corpus-workspace">
           <CorpusPanel />

@@ -89,6 +89,7 @@ Run targeted tests for changed areas first, then broaden if needed.
 - Preserve readiness semantics (`/ready` reflects Search/OpenAI health and index availability).
 - Keep retrieval citation-friendly and source-traceable.
 - Keep production topology assumptions (API private behind APIM; avoid direct public API assumptions).
+- For UI/styling work, follow [`Design.md`](Design.md) (tokens, CopilotKit bridge, console chrome, responsive/accessibility rules).
 
 ## Environment and Secrets
 

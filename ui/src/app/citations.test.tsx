@@ -35,7 +35,7 @@ describe("search docs citations", () => {
 
     expect(screen.getByText("Sources · 1")).toBeTruthy();
     expect(screen.getByLabelText("Retrieved in 320 milliseconds")).toBeTruthy();
-    expect(screen.getByText("[1] Contoso Product")).toBeTruthy();
+    expect(screen.getByText("[1] Contoso Product — Fresh dashboards.")).toBeTruthy();
     expect(screen.getByText("Fresh dashboards.")).toBeTruthy();
     expect(document.querySelector('[data-citation-anchor="tool-1"]')).toBeTruthy();
     expect(document.querySelector('[data-citation-id="1"]')?.id).toBe("cite-tool-1-1");

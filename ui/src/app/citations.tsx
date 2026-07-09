@@ -13,6 +13,12 @@ export type SearchDocsPayload = {
   retrievalMs?: number;
 };
 
+function previewChunk(chunk: string, max = 72): string {
+  const oneLine = chunk.replace(/\s+/g, " ").trim();
+  if (oneLine.length <= max) return oneLine;
+  return `${oneLine.slice(0, max - 1)}…`;
+}
+
 export function parseSearchDocsResult(result: string | undefined): SearchDocsPayload {
   if (!result) return { citations: [] };
   try {
@@ -92,7 +98,9 @@ export function SearchDocsSources({
             >
               <summary>
                 <ChevronRight size={14} />
-                <span>[{citation.id}] {citation.document}</span>
+                <span className="citation-snippet">
+                  [{citation.id}] {citation.document} — {previewChunk(citation.chunk)}
+                </span>
               </summary>
               <p>{citation.chunk}</p>
             </details>

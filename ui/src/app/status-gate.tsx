@@ -48,26 +48,51 @@ export function StatusGate({ children }: { children: ReactNode }) {
   const label = status.status === "ready" ? "Connected" : status.status[0].toUpperCase() + status.status.slice(1);
   const indexerTimestamp = status.indexer?.time ? formatTimestamp(status.indexer.time) : null;
   const lastSuccessTimestamp = status.lastSuccess ? formatTimestamp(status.lastSuccess) : null;
+  const showLastIndex =
+    lastSuccessTimestamp !== null
+    && (!status.indexer || indexerTimestamp === null || lastSuccessTimestamp !== indexerTimestamp);
+
   return (
     <section className="console-main">
-      <div className="service-strip status-strip" aria-live="polite">
-        <span className={`status status-${status.status}`}><i aria-hidden="true" /> {label}</span>
-        <span className="dep-health" aria-label={dependencyLabel(status.search, "Search")}>
-          <i className={`dep-dot dep-${status.search ?? "unknown"}`} aria-hidden="true" /> Search
-        </span>
-        <span className="dep-health" aria-label={dependencyLabel(status.openai, "OpenAI")}>
-          <i className={`dep-dot dep-${status.openai ?? "unknown"}`} aria-hidden="true" /> OpenAI
-        </span>
-        {status.documentCount !== null ? <span className="ops-metric">Docs: {status.documentCount.toLocaleString()}</span> : null}
-        {lastSuccessTimestamp ? <span className="ops-metric">Last index: {lastSuccessTimestamp}</span> : null}
-        {status.indexer ? (
-          <span className="indexer-status">
-            Indexer: {status.indexer.outcome}{indexerTimestamp ? ` · ${indexerTimestamp}` : ""}
+      <div className="status-strip" aria-live="polite">
+        <div className="status-group">
+          <span className={`status-chip status-${status.status}`}>
+            <i className="status-dot" aria-hidden="true" />
+            {label}
           </span>
-        ) : null}
+          <span
+            className={`status-chip dep-${status.search ?? "unknown"}`}
+            aria-label={dependencyLabel(status.search, "Search")}
+          >
+            <i className="status-dot" aria-hidden="true" />
+            Search
+          </span>
+          <span
+            className={`status-chip dep-${status.openai ?? "unknown"}`}
+            aria-label={dependencyLabel(status.openai, "OpenAI")}
+          >
+            <i className="status-dot" aria-hidden="true" />
+            OpenAI
+          </span>
+        </div>
+        <div className="status-group">
+          {status.documentCount !== null ? (
+            <span className="status-chip metric-chip">Docs: {status.documentCount.toLocaleString()}</span>
+          ) : null}
+          {showLastIndex ? (
+            <span className="status-chip metric-chip">Last index: {lastSuccessTimestamp}</span>
+          ) : null}
+          {status.indexer ? (
+            <span className="status-chip metric-chip">
+              Indexer: {status.indexer.outcome}{indexerTimestamp ? ` · ${indexerTimestamp}` : ""}
+            </span>
+          ) : null}
+        </div>
       </div>
       <section className="chat-workspace" aria-label="RAG assistant">
-        {status.status === "ready" ? children : <div className="chat-placeholder">The RAG assistant is {status.status}. Please check again shortly.</div>}
+        {status.status === "ready" ? children : (
+          <div className="chat-placeholder">The RAG assistant is {status.status}. Please check again shortly.</div>
+        )}
       </section>
     </section>
   );
