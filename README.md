@@ -104,7 +104,8 @@ sequenceDiagram
 | Indexer | Azure AI Search indexer | Orchestrates Blob extraction and enrichment | Content and metadata extraction; strict zero-failure policy; status polling |
 | Retrieval | `azure_rag/rag.py` | Finds grounding context | Semantic hybrid search: full-text query, integrated query vectorization, HNSW candidates, semantic reranking, captions, and answers requested from Search |
 | Generation | Azure OpenAI chat deployment | Produces the final answer | Low-temperature grounded prompt; numbered citations; explicit insufficient-context behavior |
-| API | FastAPI | Exposes application operations | Health check, typed JSON query API, AG-UI streaming endpoint, generated OpenAPI docs |
+| API | FastAPI | Exposes application operations | Health check, typed JSON query API, Agent Framework AG-UI streaming endpoint, generated OpenAPI docs |
+| Agent runtime | Microsoft Agent Framework + AG-UI | Owns chat streaming and tool calls | Azure OpenAI agent with `search_docs` tool; AG-UI SSE via `agent-framework-ag-ui` |
 | Agent protocol | AG-UI | Standardizes UI-to-agent communication | Run lifecycle, text-message lifecycle, and error events over an event stream |
 | Web runtime | CopilotKit runtime in Next.js | Server-side agent bridge | `HttpAgent` proxy to FastAPI; backend URL kept server-side |
 | Web UI | Next.js, React, CopilotKit | Interactive test console | Responsive chat, suggested questions, answer rendering, and source display |
@@ -162,7 +163,7 @@ azure_rag/
   search_pipeline.py  Blob upload and Azure AI Search object management
   rag.py              Hybrid retrieval, prompting, and answer generation
   api.py              FastAPI routes and request/response models
-  agui.py             AG-UI event adapter
+  agent.py            Agent Framework agent + search_docs tool
 sample_docs/          Sample Markdown knowledge base
 scripts/
   setup_azure_rag.py  Pipeline setup entry point
@@ -371,7 +372,7 @@ Response shape:
 
 ### `POST /agui`
 
-Accepts an AG-UI `RunAgentInput` and emits encoded run, message, and error events. The current adapter sends the completed answer in one text-content event; the protocol response is streamed, but model tokens are not yet forwarded incrementally.
+Served by Microsoft Agent Framework's AG-UI bridge (`agent-framework-ag-ui`). The agent streams model tokens over AG-UI events and calls a `search_docs` tool that wraps Azure AI Search retrieval. CopilotKit consumes those deltas out of the box.
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/agui \
@@ -411,8 +412,8 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - Indexing is manually triggered and has no recurring schedule.
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
-- Chat requests are synchronous inside the FastAPI process; the AG-UI endpoint wraps the completed answer in streaming protocol events.
-- Each turn is classified with Azure OpenAI as knowledge-base, meta/capability, or memory before retrieval; only knowledge-base turns call Azure AI Search. Classification failures fall back to knowledge-base retrieval.
+- `/agui` is hosted by Agent Framework AG-UI streaming; the agent decides when to call `search_docs`. `/query` remains a direct `RagService.answer` JSON path.
+- Client disconnect cancellation of upstream generation is not implemented yet.
 - The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
 - APIM rate-limits and quotas `/query` and `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.
@@ -440,7 +441,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 | P1 | Resilience controls | Retries, backoff, circuit breaking, and concurrency limits handle Azure throttling without cascading failures |
 | P1 | Document ACL and tenant filters | Search enforces tenant/user access constraints before chunks reach the model |
 | P1 | Evaluation datasets and CI gates | CI tracks retrieval recall, groundedness, citation correctness, latency, and cost against explicit thresholds |
-| P1 | True token streaming and client cancellation | Model tokens reach the UI incrementally and disconnects cancel upstream generation |
+| P1 | Client cancellation | Disconnects cancel upstream Agent Framework / OpenAI generation |
 | P2 | Layout-aware document ingestion | PDFs, scans, forms, tables, and images are processed through Document Intelligence or Content Understanding |
 | P2 | Richer source metadata | Responses expose semantic captions/answers and useful document/page locations |
 | P2 | Conversation persistence and feedback | Multi-turn state, audit history, and user feedback survive individual requests |
@@ -452,4 +453,4 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - Hybrid retrieval combines lexical matching with vector similarity, then applies semantic reranking before generation.
 - Index projections create one searchable document per chunk and skip indexing the unsplit parent document.
 - The answer prompt includes numbered chunks, prior conversation turns from the current thread, and citation markers such as `[1]` and `[2]` for knowledge-base facts.
-- The CopilotKit runtime is a server-side boundary between the browser and the AG-UI agent endpoint; it is not a second RAG implementation.
+- The CopilotKit runtime is a server-side boundary between the browser and the AG-UI agent endpoint; streaming is owned by Agent Framework on `/agui`, not by custom token loops in this repo.

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from typing import Any
 
-from ag_ui.core import RunAgentInput
+from agent_framework_ag_ui import add_agent_framework_fastapi_endpoint
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from .agui import agui_events
+from .agent import create_rag_agent
 from .config import AppConfig
 from .rag import RagService
 from .readiness import ReadinessService, probe_openai, probe_search
@@ -35,6 +36,8 @@ def create_app(
     config: AppConfig | None = None,
     rag_service: RagService | None = None,
     readiness_service: ReadinessService | None = None,
+    agent: Any | None = None,
+    register_agui: bool = True,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -46,9 +49,16 @@ def create_app(
             lambda: probe_search(resolved_config, resolved_rag.credential, resolved_rag.session),
             lambda: probe_openai(resolved_config, resolved_rag.openai),
         )
+        resolved_agent = agent
+        if register_agui and resolved_agent is None:
+            resolved_agent = create_rag_agent(resolved_config, resolved_rag)
         app.state.config = resolved_config
         app.state.rag = resolved_rag
         app.state.readiness = resolved_readiness
+        app.state.agent = resolved_agent
+        if register_agui and resolved_agent is not None and not getattr(app.state, "agui_registered", False):
+            add_agent_framework_fastapi_endpoint(app, resolved_agent, "/agui")
+            app.state.agui_registered = True
         try:
             yield
         finally:
@@ -73,13 +83,6 @@ def create_app(
     @application.post("/query", response_model=QueryResponse)
     def query(input_data: QueryRequest, request: Request) -> dict:
         return request.app.state.rag.answer(input_data.question, top=input_data.top)
-
-    @application.post("/agui")
-    async def agui(input_data: RunAgentInput, request: Request) -> StreamingResponse:
-        return StreamingResponse(
-            agui_events(input_data, request.headers.get("accept"), request.app.state.rag),
-            media_type="text/event-stream",
-        )
 
     return application
 

@@ -27,7 +27,7 @@ class FakeRagService:
 
 def test_app_lifespan_does_not_close_injected_rag_service():
     service = FakeRagService()
-    app = create_app(config=config(), rag_service=service)
+    app = create_app(config=config(), rag_service=service, register_agui=False)
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
@@ -39,10 +39,35 @@ def test_app_lifespan_does_not_close_injected_rag_service():
 def test_app_lifespan_closes_internally_created_rag_service(monkeypatch):
     service = FakeRagService()
     monkeypatch.setattr("azure_rag.api.RagService", lambda config: service)
-    app = create_app(config=config())
+    app = create_app(config=config(), register_agui=False)
 
     with TestClient(app) as client:
         assert client.get("/health").status_code == 200
         assert service.closed is False
 
     assert service.closed is True
+
+
+def test_app_registers_agui_endpoint_with_agent_framework(monkeypatch):
+    captured = {}
+
+    def fake_add_endpoint(app, agent, path="/", **kwargs):
+        captured["app"] = app
+        captured["agent"] = agent
+        captured["path"] = path
+
+        @app.post(path)
+        def agui_stub():
+            return {"ok": True}
+
+    monkeypatch.setattr("azure_rag.api.add_agent_framework_fastapi_endpoint", fake_add_endpoint)
+    monkeypatch.setattr("azure_rag.api.create_rag_agent", lambda config, rag: {"name": "fake-agent"})
+
+    service = FakeRagService()
+    app = create_app(config=config(), rag_service=service, register_agui=True)
+
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+        assert captured["path"] == "/agui"
+        assert captured["agent"] == {"name": "fake-agent"}
+        assert client.post("/agui").status_code == 200
