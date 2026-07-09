@@ -13,7 +13,7 @@ from openai import OpenAI
 
 from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential, openai_token_provider
 from .config import AppConfig
-from .telemetry import tracer
+from .telemetry import start_langsmith_run, tracer
 
 
 @dataclass(frozen=True)
@@ -79,6 +79,12 @@ class RagService:
             span.set_attribute("rag.question", question)
             span.set_attribute("azure.search.index", self.config.search_index)
             span.set_attribute("rag.retrieval.top", top)
+            run = start_langsmith_run(
+                name="Retrieve Context",
+                run_type="retriever",
+                inputs={"question": question, "top": top},
+                metadata={"azure.search.index": self.config.search_index},
+            )
             try:
                 url = (
                     f"{self.config.search_endpoint}/indexes/{self.config.search_index}/docs/search"
@@ -142,9 +148,22 @@ class RagService:
                         ]
                     ),
                 )
+                chunk_outputs = [
+                    {
+                        "title": chunk.title,
+                        "source_path": chunk.source_path,
+                        "score": chunk.score,
+                        "chunk": chunk.chunk,
+                    }
+                    for chunk in filtered
+                ]
+                if run is not None:
+                    run.end(outputs={"chunks": chunk_outputs, "result_count": len(filtered)})
                 return filtered
             except Exception as error:
                 span.record_exception(error)
+                if run is not None:
+                    run.end(error=error, traceback=error.__traceback__)
                 raise
             finally:
                 span.set_attribute(

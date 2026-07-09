@@ -95,6 +95,76 @@ button, textarea { font: inherit; }
   box-shadow: 0 4px 18px rgb(30 42 52 / 6%);
 }
 
+.citation-panel {
+  margin: 8px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.citation-panel summary,
+.citation-item summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.citation-panel summary::-webkit-details-marker,
+.citation-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.citation-panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 650;
+  color: #1f2d3d;
+}
+
+.citation-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.citation-item {
+  border: 1px solid #d8e0e7;
+  border-radius: 7px;
+  background: var(--surface);
+}
+
+.citation-item summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  color: #243447;
+  font-weight: 600;
+}
+
+.citation-item summary svg {
+  flex: 0 0 auto;
+  color: #5f6f7d;
+  transition: transform 120ms ease;
+}
+
+.citation-item[open] summary svg {
+  transform: rotate(90deg);
+}
+
+.citation-item p {
+  margin: 0;
+  padding: 10px;
+  border-top: 1px solid #e4e9ee;
+  color: #2c3947 !important;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  opacity: 1 !important;
+}
+
 @media (max-width: 720px) {
   .console-shell { grid-template-rows: 58px minmax(0, 1fr); min-height: 480px; }
   .console-header { padding: 0 14px; }

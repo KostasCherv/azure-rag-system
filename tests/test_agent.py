@@ -1,11 +1,15 @@
+import json
 from types import SimpleNamespace
 
 import anyio
+import azure_rag.agent as agent_module
 
 from azure_rag.agent import (
+    LangSmithRunTelemetryMiddleware,
     ModelTelemetryMiddleware,
     create_rag_agent,
     create_search_docs_tool,
+    final_answer_text,
     format_search_results,
 )
 from azure_rag.config import AppConfig
@@ -55,6 +59,14 @@ class CapturingTracer:
         return span
 
 
+class FakeLangSmithRun:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def end(self, **kwargs):
+        self.calls.append({"ended": kwargs})
+
+
 def test_format_search_results_numbers_chunks():
     text = format_search_results(
         [
@@ -67,10 +79,17 @@ def test_format_search_results_numbers_chunks():
         ]
     )
 
-    assert "[1] contoso-security.md" in text
-    assert "(contoso-security.md)" not in text
-    assert "Data is encrypted at rest." in text
-    assert "score=2.4" in text
+    payload = json.loads(text)
+    assert payload["context"] == "[1]\nData is encrypted at rest."
+    assert payload["citations"] == [
+        {
+            "id": 1,
+            "document": "contoso-security.md",
+            "chunk": "Data is encrypted at rest.",
+        }
+    ]
+    assert "contoso-security.md" not in payload["context"]
+    assert "score=2.4" not in text
 
 
 def test_format_search_results_empty_message():
@@ -93,14 +112,41 @@ def test_search_docs_tool_uses_rag_retrieve():
 
     tool = create_search_docs_tool(FakeRag())
     result = tool(question="security overview", top=3)
+    payload = json.loads(result)
 
-    assert "[1] contoso-security.md" in result
+    assert "[1]" in result
+    assert "contoso-security.md" not in payload["context"]
     assert "Encrypted at rest." in result
+
+
+def test_final_answer_text_ignores_tool_context_messages():
+    response = SimpleNamespace(
+        text="[1] contoso-product.md score=2.4\nraw context",
+        messages=[
+            SimpleNamespace(
+                role="assistant",
+                contents=[SimpleNamespace(type="text", text="[1] contoso-product.md score=2.4\nraw context")],
+            ),
+            SimpleNamespace(
+                role="assistant",
+                contents=[SimpleNamespace(type="text", text="Contoso Analytics monitors support queues [1].")],
+            ),
+        ],
+    )
+
+    assert final_answer_text(response) == "Contoso Analytics monitors support queues [1]."
 
 
 def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
     tracer = CapturingTracer()
     monkeypatch.setattr("azure_rag.agent.tracer", tracer)
+    runs = []
+
+    def fake_start_langsmith_run(**kwargs):
+        runs.append({"started": kwargs})
+        return FakeLangSmithRun(runs)
+
+    monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
 
     class FakeRag:
         def retrieve(self, question, top=5):
@@ -122,11 +168,53 @@ def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
     assert span.attributes["rag.retrieval.top"] == 3
     assert span.attributes["rag.retrieval.result_count"] == 1
     assert span.attributes["rag.tool.output"] == result
+    assert runs[0]["started"]["name"] == "Search Docs Tool"
+    assert runs[0]["started"]["run_type"] == "tool"
+    assert runs[0]["started"]["inputs"] == {"question": "security overview", "top": 3}
+    assert runs[1]["ended"] == {"outputs": {"context": result, "result_count": 1}}
+
+
+def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
+    class FakeRag:
+        def __init__(self):
+            self.calls = 0
+
+        def retrieve(self, _question, top=5):
+            self.calls += 1
+            return [
+                RetrievedChunk(
+                    title="contoso-product.md",
+                    chunk="Product details.",
+                    source_path="contoso-product.md",
+                    score=3.0,
+                )
+            ]
+
+    monkeypatch.setattr("azure_rag.agent.start_langsmith_run", lambda **_kwargs: None)
+    rag = FakeRag()
+    tool = create_search_docs_tool(rag)
+    token = agent_module._search_queries.set(set())
+    try:
+        first = tool(question="Contoso Analytics product information", top=5)
+        second = tool(question="Contoso Analytics product information", top=5)
+    finally:
+        agent_module._search_queries.reset(token)
+
+    assert "Product details." in first
+    assert "already performed" in second
+    assert rag.calls == 1
 
 
 def test_model_middleware_records_streamed_final_response(monkeypatch):
     tracer = CapturingTracer()
     monkeypatch.setattr("azure_rag.agent.tracer", tracer)
+    runs = []
+
+    def fake_start_langsmith_run(**kwargs):
+        runs.append({"started": kwargs})
+        return FakeLangSmithRun(runs)
+
+    monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
     middleware = ModelTelemetryMiddleware("chat")
     context = SimpleNamespace(
         messages=[SimpleNamespace(text="What is covered?")],
@@ -144,10 +232,51 @@ def test_model_middleware_records_streamed_final_response(monkeypatch):
     span = tracer.spans[0]
     assert returned is response
     assert span.name == "rag.model.response"
-    assert span.attributes["rag.model.input"] == "What is covered?"
+    assert "What is covered?" in span.attributes["rag.model.input"]
     assert span.attributes["rag.model.output"] == "Security is covered."
     assert span.attributes["azure.openai.deployment"] == "chat"
     assert span.attributes["rag.model.duration_ms"] >= 0
+    assert runs[0]["started"]["name"] == "Model Call: tool selection"
+    assert runs[0]["started"]["run_type"] == "llm"
+    assert runs[0]["started"]["inputs"] == {"messages": ["What is covered?"]}
+    assert runs[0]["started"]["metadata"]["ls_model_name"] == "chat"
+    assert runs[1]["ended"] == {"outputs": {"output": "Security is covered."}}
+
+
+def test_langsmith_run_middleware_groups_streamed_user_query(monkeypatch):
+    ended = []
+
+    class FakeRun:
+        def end(self, **kwargs):
+            ended.append(kwargs)
+
+    def fake_start_langsmith_run(**kwargs):
+        ended.append({"started": kwargs})
+        return FakeRun()
+
+    monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
+    middleware = LangSmithRunTelemetryMiddleware("chat")
+    context = SimpleNamespace(
+        messages=[SimpleNamespace(text="What does Contoso encrypt?")],
+        stream=True,
+        stream_result_hooks=[],
+    )
+
+    async def call_next():
+        return None
+
+    anyio.run(middleware.process, context, call_next)
+    response = SimpleNamespace(text="Contoso encrypts data at rest.")
+    returned = anyio.run(context.stream_result_hooks[0], response)
+
+    assert returned is response
+    assert ended[0]["started"]["name"] == "RAG Request"
+    assert ended[0]["started"]["run_type"] == "chain"
+    assert ended[0]["started"]["inputs"] == {
+        "question": "What does Contoso encrypt?",
+        "message_count": 1,
+    }
+    assert ended[1] == {"outputs": {"answer": "Contoso encrypts data at rest."}}
 
 
 def test_create_rag_agent_registers_search_tool(monkeypatch):

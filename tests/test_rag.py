@@ -93,6 +93,14 @@ class CapturingTracer:
         return span
 
 
+class FakeLangSmithRun:
+    def __init__(self, calls):
+        self.calls = calls
+
+    def end(self, **kwargs):
+        self.calls.append({"ended": kwargs})
+
+
 def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     credential = FakeCredential()
     session = FakeSession()
@@ -240,6 +248,13 @@ def test_retrieve_filters_out_low_scoring_chunks():
 def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
     tracer = CapturingTracer()
     monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+    runs = []
+
+    def fake_start_langsmith_run(**kwargs):
+        runs.append({"started": kwargs})
+        return FakeLangSmithRun(runs)
+
+    monkeypatch.setattr("azure_rag.rag.start_langsmith_run", fake_start_langsmith_run)
     service = RagService(
         config(),
         credential=FakeCredential(),
@@ -258,3 +273,8 @@ def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
     assert "doc.md" in span.attributes["rag.retrieval.context"]
     assert "2.5" in span.attributes["rag.retrieval.context"]
     assert span.attributes["rag.retrieval.duration_ms"] >= 0
+    assert runs[0]["started"]["name"] == "Retrieve Context"
+    assert runs[0]["started"]["run_type"] == "retriever"
+    assert runs[0]["started"]["inputs"] == {"question": "security", "top": 3}
+    assert runs[1]["ended"]["outputs"]["result_count"] == 1
+    assert runs[1]["ended"]["outputs"]["chunks"][0]["source_path"] == "doc.md"
