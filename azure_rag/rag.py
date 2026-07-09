@@ -19,24 +19,36 @@ class RetrievedChunk:
     score: float | None = None
 
 
-def build_messages(question: str, chunks: list[RetrievedChunk]) -> list[dict[str, str]]:
+def build_messages(
+    question: str,
+    chunks: list[RetrievedChunk],
+    history: list[dict[str, str]] | None = None,
+) -> list[dict[str, str]]:
     context = "\n\n".join(
         f"[{idx}] title: {chunk.title}\nsource: {chunk.source_path}\ncontent: {chunk.chunk}"
         for idx, chunk in enumerate(chunks, start=1)
     )
-    return [
+    messages: list[dict[str, str]] = [
         {
             "role": "system",
             "content": (
-                "You are a grounded assistant for a RAG demo. Answer only from the provided context. "
-                "If the context is insufficient, say what is missing. Cite sources using [1], [2], etc."
+                "You are a grounded assistant for a RAG demo. Use the provided context for "
+                "knowledge-base facts and cite those sources using [1], [2], etc. Use prior "
+                "conversation history for personal or conversational details the user already "
+                "shared. If neither the context nor the conversation history is enough, say "
+                "what is missing."
             ),
         },
+    ]
+    if history:
+        messages.extend(history)
+    messages.append(
         {
             "role": "user",
             "content": f"Context:\n{context}\n\nQuestion: {question}",
-        },
-    ]
+        }
+    )
+    return messages
 
 
 class RagService:
@@ -118,11 +130,16 @@ class RagService:
             for item in results
         ]
 
-    def answer(self, question: str, top: int = 5) -> dict[str, Any]:
+    def answer(
+        self,
+        question: str,
+        top: int = 5,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict[str, Any]:
         chunks = self.retrieve(question, top=top)
         completion = self.openai.chat.completions.create(
             model=self.config.azure_openai_chat_deployment,
-            messages=build_messages(question, chunks),
+            messages=build_messages(question, chunks, history=history),
             temperature=0.2,
         )
         answer = completion.choices[0].message.content or ""

@@ -412,7 +412,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
 - Chat requests are synchronous inside the FastAPI process; the AG-UI endpoint wraps the completed answer in streaming protocol events.
-- Conversation history is not persisted and only the latest user message drives each AG-UI run.
+- Conversation history is not persisted across sessions; within a chat thread, prior user/assistant turns are included in each AG-UI generation request.
 - The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
 - APIM rate-limits and quotas `/query` and `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.
@@ -451,5 +451,5 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - Azure AI Search performs both index-time and query-time vectorization with the same embedding deployment, avoiding embedding logic in the application.
 - Hybrid retrieval combines lexical matching with vector similarity, then applies semantic reranking before generation.
 - Index projections create one searchable document per chunk and skip indexing the unsplit parent document.
-- The answer prompt includes numbered chunks and requires citation markers such as `[1]` and `[2]`.
+- The answer prompt includes numbered chunks, prior conversation turns from the current thread, and citation markers such as `[1]` and `[2]` for knowledge-base facts.
 - The CopilotKit runtime is a server-side boundary between the browser and the AG-UI agent endpoint; it is not a second RAG implementation.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
@@ -26,10 +27,34 @@ def latest_user_content(messages: Sequence[Any]) -> str:
     raise ValueError("AG-UI input must include at least one user message with content.")
 
 
+def prior_conversation_messages(messages: Sequence[Any]) -> list[dict[str, str]]:
+    """Return user/assistant turns before the latest user message."""
+    latest_user_index: int | None = None
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if getattr(message, "role", None) == "user" and getattr(message, "content", None):
+            latest_user_index = index
+            break
+    if latest_user_index is None:
+        raise ValueError("AG-UI input must include at least one user message with content.")
+
+    history: list[dict[str, str]] = []
+    for message in messages[:latest_user_index]:
+        role = getattr(message, "role", None)
+        content = getattr(message, "content", None)
+        if role in {"user", "assistant"} and content:
+            history.append({"role": role, "content": content})
+    return history
+
+
+def answer_cites_sources(answer: str) -> bool:
+    return bool(re.search(r"\[\d+\]", answer))
+
+
 def format_answer_payload(result: dict[str, Any]) -> str:
     answer = result["answer"]
     sources = result.get("sources") or []
-    if not sources:
+    if not sources or not answer_cites_sources(answer):
         return answer
 
     source_lines = [
@@ -57,7 +82,8 @@ async def agui_events(
         )
 
         question = latest_user_content(input_data.messages)
-        result = rag.answer(question)
+        history = prior_conversation_messages(input_data.messages)
+        result = rag.answer(question, history=history)
         content = format_answer_payload(result)
 
         yield encoder.encode(

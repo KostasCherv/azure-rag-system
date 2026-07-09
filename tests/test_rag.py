@@ -157,7 +157,84 @@ def test_build_messages_include_context_citations_and_question():
 
     assert messages[0]["role"] == "system"
     assert "grounded assistant" in messages[0]["content"]
+    assert "conversation history" in messages[0]["content"].lower()
     assert messages[1]["role"] == "user"
     assert "support.md" in messages[1]["content"]
     assert "Premium support replies within 4 business hours." in messages[1]["content"]
     assert "What does the support policy say?" in messages[1]["content"]
+
+
+def test_build_messages_include_conversation_history_before_question():
+    messages = build_messages(
+        "whats my name",
+        [
+            RetrievedChunk(
+                title="support.md",
+                chunk="Premium support replies within 4 business hours.",
+                source_path="docs/support.md",
+                score=2.1,
+            )
+        ],
+        history=[
+            {"role": "user", "content": "Hi my name is kostas"},
+            {"role": "assistant", "content": "Hello Kostas."},
+        ],
+    )
+
+    system = messages[0]["content"]
+    assert "conversation history" in system.lower() or "prior conversation" in system.lower()
+    assert messages[1] == {"role": "user", "content": "Hi my name is kostas"}
+    assert messages[2] == {"role": "assistant", "content": "Hello Kostas."}
+    assert messages[3]["role"] == "user"
+    assert "whats my name" in messages[3]["content"]
+    assert "Premium support replies within 4 business hours." in messages[3]["content"]
+
+
+def test_rag_answer_passes_history_to_chat_completion():
+    class RecordingCompletions:
+        def __init__(self):
+            self.kwargs = None
+
+        def create(self, **kwargs):
+            self.kwargs = kwargs
+            return type(
+                "Completion",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {"message": type("Message", (), {"content": "Your name is Kostas."})()},
+                        )()
+                    ]
+                },
+            )()
+
+    class RecordingOpenAI:
+        def __init__(self):
+            self.chat = type("Chat", (), {"completions": RecordingCompletions()})()
+
+        def close(self):
+            pass
+
+    openai_client = RecordingOpenAI()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=openai_client,
+        session=FakeSession(),
+    )
+
+    result = service.answer(
+        "whats my name",
+        history=[
+            {"role": "user", "content": "Hi my name is kostas"},
+            {"role": "assistant", "content": "Hello Kostas."},
+        ],
+    )
+
+    assert result["answer"] == "Your name is Kostas."
+    sent = openai_client.chat.completions.kwargs["messages"]
+    assert sent[1]["content"] == "Hi my name is kostas"
+    assert "whats my name" in sent[-1]["content"]
