@@ -1,9 +1,26 @@
 "use client";
 
 import { type ReactNode, useEffect, useState } from "react";
-import { normalizeStatusResponse, type NormalizedReadiness } from "@/lib/readiness";
+import { normalizeStatusResponse, type NormalizedReadiness, unavailable } from "@/lib/readiness";
 
-const initial: NormalizedReadiness = { status: "checking", indexer: null };
+const initial: NormalizedReadiness = {
+  status: "checking",
+  search: null,
+  openai: null,
+  documentCount: null,
+  lastSuccess: null,
+  indexer: null,
+};
+
+function formatTimestamp(value: string): string {
+  return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}
+
+function dependencyLabel(health: NormalizedReadiness["search"], name: string): string {
+  if (health === "available") return `${name} available`;
+  if (health === "unavailable") return `${name} unavailable`;
+  return `${name} unknown`;
+}
 
 export function StatusGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState(initial);
@@ -13,11 +30,10 @@ export function StatusGate({ children }: { children: ReactNode }) {
     const poll = async () => {
       try {
         const response = await fetch("/api/status", { signal: controller.signal, cache: "no-store" });
-        if (!response.ok) throw new Error("unavailable");
         const next = normalizeStatusResponse(await response.json());
         if (!controller.signal.aborted) setStatus(next);
       } catch {
-        if (!controller.signal.aborted) setStatus({ status: "unavailable", indexer: null });
+        if (!controller.signal.aborted) setStatus(unavailable());
       } finally {
         if (!controller.signal.aborted) timer = window.setTimeout(poll, 30_000);
       }
@@ -30,12 +46,25 @@ export function StatusGate({ children }: { children: ReactNode }) {
   }, []);
 
   const label = status.status === "ready" ? "Connected" : status.status[0].toUpperCase() + status.status.slice(1);
-  const timestamp = status.indexer?.time ? new Date(status.indexer.time).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : null;
+  const indexerTimestamp = status.indexer?.time ? formatTimestamp(status.indexer.time) : null;
+  const lastSuccessTimestamp = status.lastSuccess ? formatTimestamp(status.lastSuccess) : null;
   return (
     <section className="console-main">
       <div className="service-strip status-strip" aria-live="polite">
         <span className={`status status-${status.status}`}><i aria-hidden="true" /> {label}</span>
-        {status.indexer && <span className="indexer-status">Indexer: {status.indexer.outcome}{timestamp ? ` · ${timestamp}` : ""}</span>}
+        <span className="dep-health" aria-label={dependencyLabel(status.search, "Search")}>
+          <i className={`dep-dot dep-${status.search ?? "unknown"}`} aria-hidden="true" /> Search
+        </span>
+        <span className="dep-health" aria-label={dependencyLabel(status.openai, "OpenAI")}>
+          <i className={`dep-dot dep-${status.openai ?? "unknown"}`} aria-hidden="true" /> OpenAI
+        </span>
+        {status.documentCount !== null ? <span className="ops-metric">Docs: {status.documentCount.toLocaleString()}</span> : null}
+        {lastSuccessTimestamp ? <span className="ops-metric">Last index: {lastSuccessTimestamp}</span> : null}
+        {status.indexer ? (
+          <span className="indexer-status">
+            Indexer: {status.indexer.outcome}{indexerTimestamp ? ` · ${indexerTimestamp}` : ""}
+          </span>
+        ) : null}
       </div>
       <section className="chat-workspace" aria-label="RAG assistant">
         {status.status === "ready" ? children : <div className="chat-placeholder">The RAG assistant is {status.status}. Please check again shortly.</div>}

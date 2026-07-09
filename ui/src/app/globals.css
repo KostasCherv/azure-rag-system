@@ -76,6 +76,11 @@ button, textarea { font: inherit; }
 .service-strip .status-degraded { color: #9a6700; }
 .service-strip .status-unavailable { color: #b42318; }
 .indexer-status { color: var(--muted); }
+.dep-health { gap: 6px; color: var(--muted); }
+.dep-dot { width: 7px; height: 7px; border-radius: 50%; background: #98a2b3; }
+.dep-dot.dep-available { background: var(--green); }
+.dep-dot.dep-unavailable { background: #b42318; }
+.ops-metric { color: var(--muted); }
 .chat-placeholder { display: grid; place-items: center; min-height: 220px; padding: 24px; color: var(--muted); text-align: center; }
 
 .chat-workspace {

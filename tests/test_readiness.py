@@ -33,10 +33,16 @@ def config():
 
 
 def successful_search(indexer_status="success"):
+    last_success = "2026-01-01T00:01:00Z" if indexer_status == "success" else None
     return SearchResult(
         status="available",
         document_count=3,
-        indexer=IndexerResult(status=indexer_status, started_at="2026-01-01T00:00:00Z", ended_at="2026-01-01T00:01:00Z"),
+        indexer=IndexerResult(
+            status=indexer_status,
+            started_at="2026-01-01T00:00:00Z",
+            ended_at="2026-01-01T00:01:00Z",
+            last_success_ended_at=last_success,
+        ),
     )
 
 
@@ -70,7 +76,13 @@ def test_healthy_readiness_returns_structured_200():
         "status": "ready",
         "search": {
             "status": "available", "document_count": 3,
-            "indexer": {"status": "success", "started_at": "2026-01-01T00:00:00Z", "ended_at": "2026-01-01T00:01:00Z", "error": None},
+            "indexer": {
+                "status": "success",
+                "started_at": "2026-01-01T00:00:00Z",
+                "ended_at": "2026-01-01T00:01:00Z",
+                "last_success_ended_at": "2026-01-01T00:01:00Z",
+                "error": None,
+            },
             "error": None,
         },
         "openai": {"status": "available", "error": None},
@@ -211,6 +223,49 @@ def test_indexer_normalization_and_error_sanitization():
     assert result.started_at == "2026-01-01T00:00:00Z"
     assert result.ended_at == "2026-01-01T00:01:00Z"
     assert result.error == "indexer run failed"
+
+
+def test_last_success_ended_at_uses_successful_last_result():
+    result = normalize_indexer({
+        "lastResult": {
+            "status": "success",
+            "startTime": "2026-01-01T00:00:00Z",
+            "endTime": "2026-01-01T00:01:00Z",
+        }
+    })
+    assert result.last_success_ended_at == "2026-01-01T00:01:00Z"
+
+
+def test_last_success_ended_at_scans_execution_history_after_failed_last_result():
+    result = normalize_indexer({
+        "lastResult": {
+            "status": "transientFailure",
+            "startTime": "2026-01-02T00:00:00Z",
+            "endTime": "2026-01-02T00:01:00Z",
+        },
+        "executionHistory": [
+            {"status": "transientFailure", "endTime": "2026-01-02T00:01:00Z"},
+            {"status": "success", "endTime": "2026-01-01T00:30:00Z"},
+        ],
+    })
+    assert result.status == "failed"
+    assert result.last_success_ended_at == "2026-01-01T00:30:00Z"
+
+
+def test_last_success_ended_at_is_none_without_success_history():
+    result = normalize_indexer({
+        "lastResult": {"status": "transientFailure", "endTime": "2026-01-02T00:01:00Z"},
+        "executionHistory": [{"status": "transientFailure", "endTime": "2026-01-01T00:30:00Z"}],
+    })
+    assert result.last_success_ended_at is None
+
+
+def test_last_success_ended_at_ignores_malformed_history_timestamps():
+    result = normalize_indexer({
+        "lastResult": {"status": "failed"},
+        "executionHistory": [{"status": "success", "endTime": "not-a-date"}],
+    })
+    assert result.last_success_ended_at is None
 
 
 def test_error_summaries_are_strictly_allowlisted_and_suppress_broad_secrets():

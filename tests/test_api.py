@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from azure_rag.api import create_app
 from azure_rag.config import AppConfig
+from azure_rag.readiness import DependencyResult, IndexerResult, ReadinessService, SearchResult
 
 
 def config():
@@ -98,3 +99,26 @@ def test_app_lifespan_configures_telemetry_when_connection_string_exists(monkeyp
         assert client.get("/health").status_code == 200
 
     assert captured["connection_string"] == "InstrumentationKey=abc"
+
+
+def test_ready_includes_last_success_ended_at():
+    search = SearchResult(
+        status="available",
+        document_count=2,
+        indexer=IndexerResult(
+            status="failed",
+            ended_at="2026-01-02T00:01:00Z",
+            last_success_ended_at="2026-01-01T00:30:00Z",
+        ),
+    )
+    service = ReadinessService(lambda: search, lambda: DependencyResult(status="available"))
+    app = create_app(
+        config=config(),
+        rag_service=FakeRagService(),
+        readiness_service=service,
+        register_agui=False,
+    )
+    with TestClient(app) as client:
+        response = client.get("/ready")
+    assert response.status_code == 200
+    assert response.json()["search"]["indexer"]["last_success_ended_at"] == "2026-01-01T00:30:00Z"

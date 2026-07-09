@@ -10,7 +10,7 @@ from typing import Any, Callable, Literal
 from azure.core.credentials import TokenCredential
 
 from .config import AppConfig
-from .search_pipeline import _request
+from .search_pipeline import _request, get_indexer_status
 
 DependencyStatus = Literal["available", "unavailable"]
 OverallStatus = Literal["ready", "degraded", "unavailable"]
@@ -27,6 +27,7 @@ class IndexerResult:
     status: Literal["success", "failed", "running", "unknown"] = "unknown"
     started_at: str | None = None
     ended_at: str | None = None
+    last_success_ended_at: str | None = None
     error: str | None = None
 
 
@@ -75,10 +76,14 @@ def _timestamp(value: Any) -> str | None:
         return None
 
 
+def _indexer_success_status(raw_status: str) -> bool:
+    return raw_status.lower() in {"success", "reset"}
+
+
 def normalize_indexer(payload: dict[str, Any]) -> IndexerResult:
     latest = payload.get("lastResult") or {}
     raw_status = str(latest.get("status") or payload.get("status") or "unknown").lower()
-    if raw_status in {"success", "reset"}:
+    if _indexer_success_status(raw_status):
         status = "success"
     elif raw_status in {"inprogress", "running"}:
         status = "running"
@@ -86,11 +91,22 @@ def normalize_indexer(payload: dict[str, Any]) -> IndexerResult:
         status = "failed"
     else:
         status = "unknown"
+    ended_at = _timestamp(latest.get("endTime"))
+    last_success_ended_at = ended_at if _indexer_success_status(raw_status) else None
+    if last_success_ended_at is None:
+        for entry in payload.get("executionHistory") or []:
+            if not isinstance(entry, dict):
+                continue
+            entry_status = str(entry.get("status") or "").lower()
+            if _indexer_success_status(entry_status):
+                last_success_ended_at = _timestamp(entry.get("endTime"))
+                break
     error = latest.get("errorMessage")
     return IndexerResult(
         status=status,
         started_at=_timestamp(latest.get("startTime")),
-        ended_at=_timestamp(latest.get("endTime")),
+        ended_at=ended_at,
+        last_success_ended_at=last_success_ended_at,
         error=sanitize_error(error, "indexer run failed") if error else None,
     )
 
@@ -102,8 +118,7 @@ def probe_search(config: AppConfig, credential: TokenCredential, session: Any) -
             credential=credential, session=session, timeout=5,
         )
         indexer_future = executor.submit(
-            _request, config, "GET", f"/indexers/{config.indexer_name}/status",
-            credential=credential, session=session, timeout=5,
+            get_indexer_status, config, credential=credential, session=session, timeout=5,
         )
         count = count_future.result()
         indexer = indexer_future.result()

@@ -87,6 +87,7 @@ def get_indexer_status(
     *,
     credential: TokenCredential,
     session: Any = requests,
+    timeout: float = 60,
 ) -> dict[str, Any]:
     return _request(
         config,
@@ -94,6 +95,7 @@ def get_indexer_status(
         f"/indexers/{config.indexer_name}/status",
         credential=credential,
         session=session,
+        timeout=timeout,
     )
 
 

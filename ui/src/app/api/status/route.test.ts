@@ -10,11 +10,29 @@ describe("status route", () => {
     expect(await response.json()).toMatchObject({ status: "ready" });
   });
   it("normalizes backend, malformed, and network failures", async () => {
-    for (const fetcher of [vi.fn(async () => new Response("bad", { status: 503 })), vi.fn(async () => new Response("{}")), vi.fn(async () => { throw new Error("secret detail"); })]) {
+    for (const fetcher of [vi.fn(async () => new Response("{}")), vi.fn(async () => { throw new Error("secret detail"); })]) {
       const response = await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: () => "https://example.test/ready" })();
       expect(response.status).toBe(503);
-      expect(await response.json()).toEqual({ status: "unavailable", indexer: null });
+      expect(await response.json()).toEqual({
+        status: "unavailable", search: null, openai: null, documentCount: null, lastSuccess: null, indexer: null,
+      });
     }
+  });
+  it("parses readiness detail from a non-OK backend body", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      status: "unavailable",
+      search: { status: "unavailable", document_count: 0, indexer: { status: "failed", last_success_ended_at: "2026-01-01T00:30:00Z" } },
+      openai: { status: "available" },
+    }), { status: 503 }));
+    const response = await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: () => "https://example.test/ready" })();
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      status: "unavailable",
+      search: "unavailable",
+      openai: "available",
+      documentCount: 0,
+      lastSuccess: "2026-01-01T00:30:00Z",
+    });
   });
   it("uses the selected URL and aborts a hanging request around six seconds", async () => {
     vi.useFakeTimers();

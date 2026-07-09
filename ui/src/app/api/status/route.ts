@@ -19,8 +19,13 @@ export function createStatusHandler(deps: Dependencies) {
       const timeout = requestTimeout(6000);
       try {
         const response = await deps.fetcher(deps.getUrl(), { headers, signal: timeout.signal, cache: "no-store" });
-        if (!response.ok) return Response.json(unavailable(), { status: 503 });
-        const normalized = normalizeReadiness(await response.json());
+        let normalized;
+        try {
+          normalized = normalizeReadiness(await response.json());
+        } catch {
+          normalized = unavailable();
+        }
+        if (!response.ok) return Response.json(normalized, { status: 503 });
         return Response.json(normalized, { status: normalized.status === "unavailable" ? 503 : 200 });
       } finally {
         timeout.cancel();
