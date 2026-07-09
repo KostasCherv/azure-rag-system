@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from .agent import create_rag_agent
 from .config import AppConfig
+from .corpus import router as corpus_router
 from .rag import RagService
 from .readiness import ReadinessService, probe_openai, probe_search
 from .telemetry import configure_telemetry, tracer
@@ -80,6 +81,8 @@ def create_app(
     def ready(request: Request) -> JSONResponse:
         result = request.app.state.readiness.check()
         return JSONResponse(result.response_body(), status_code=result.http_status)
+
+    application.include_router(corpus_router)
 
     return application
 

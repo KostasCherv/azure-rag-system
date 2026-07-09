@@ -88,6 +88,8 @@ def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
     quota_line = next(line for line in policy.splitlines() if "<quota-by-key" in line)
     assert "retry-after-header-name" not in quota_line
     assert "context.Operation.Id == &quot;agui&quot;" in policy
+    assert "context.Operation.Id == &quot;corpus-upload&quot;" in policy
+    assert "context.Operation.Id == &quot;corpus-run&quot;" in policy
     assert "context.Operation.Id == &quot;query&quot;" not in policy
     assert "backendAudience" in policy
     assert "api-key" not in policy.lower()
@@ -96,7 +98,7 @@ def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
 def test_routes_and_standard_v2_apim_are_deployed() -> None:
     apim = read("infra/modules/apim.bicep")
     service = read("infra/modules/apim-service.bicep")
-    for route in ("agui", "ready"):
+    for route in ("agui", "ready", "corpus-list", "corpus-upload", "corpus-run", "corpus-status"):
         assert f"name: '{route}'" in apim
     assert "StandardV2" in service
     assert "virtualNetworkType: 'External'" in service

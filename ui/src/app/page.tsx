@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { Bot, Database, Search } from "lucide-react";
 import { headers } from "next/headers";
@@ -23,6 +24,7 @@ export default async function Home() {
         <div className="service-strip" aria-label="Active Azure services">
           <span><Search size={14} /> Azure AI Search</span>
           <span><Database size={14} /> Blob index</span>
+          <Link href="/corpus">Corpus</Link>
           {principal ? (
             <span>
               {principal.name}

@@ -165,6 +165,26 @@ button, textarea { font: inherit; }
   opacity: 1 !important;
 }
 
+.corpus-workspace > * { max-width: 960px; }
+.corpus-panel { display: grid; gap: 16px; padding: 20px; }
+.corpus-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.corpus-upload input { display: none; }
+.corpus-upload, .corpus-actions button {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+.corpus-actions button:disabled, .corpus-upload:has(input:disabled) { opacity: 0.6; cursor: not-allowed; }
+.corpus-indexer, .corpus-message, .corpus-placeholder { margin: 0; color: var(--muted); font-size: 13px; }
+.corpus-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.corpus-table th, .corpus-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; }
+.corpus-table th { color: var(--muted); font-weight: 600; }
+
 @media (max-width: 720px) {
   .console-shell { grid-template-rows: 58px minmax(0, 1fr); min-height: 480px; }
   .console-header { padding: 0 14px; }

@@ -82,6 +82,103 @@ def _managed_request(
         )
 
 
+def get_indexer_status(
+    config: AppConfig,
+    *,
+    credential: TokenCredential,
+    session: Any = requests,
+) -> dict[str, Any]:
+    return _request(
+        config,
+        "GET",
+        f"/indexers/{config.indexer_name}/status",
+        credential=credential,
+        session=session,
+    )
+
+
+def list_documents(
+    config: AppConfig,
+    *,
+    credential: TokenCredential | None = None,
+    blob_service_client: Any | None = None,
+) -> list[dict[str, Any]]:
+    owns_blob_service = blob_service_client is None
+    owns_credential = credential is None and owns_blob_service
+    resolved_credential = credential
+    try:
+        if owns_blob_service:
+            resolved_credential = credential if credential is not None else default_credential()
+            blob_service_client = BlobServiceClient(
+                account_url=config.storage_account_url,
+                credential=resolved_credential,
+            )
+        container = blob_service_client.get_container_client(config.storage_container)
+        documents: list[dict[str, Any]] = []
+        for blob in container.list_blobs():
+            suffix = Path(blob.name).suffix.lower()
+            if suffix not in SUPPORTED_SAMPLE_DOC_TYPES:
+                continue
+            documents.append(
+                {
+                    "name": blob.name,
+                    "size": blob.size,
+                    "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
+                }
+            )
+        return sorted(documents, key=lambda item: item["name"])
+    finally:
+        try:
+            if owns_blob_service and blob_service_client is not None:
+                blob_service_client.close()
+        finally:
+            if owns_credential and resolved_credential is not None:
+                resolved_credential.close()
+
+
+def upload_document(
+    config: AppConfig,
+    name: str,
+    data: bytes,
+    *,
+    credential: TokenCredential | None = None,
+    blob_service_client: Any | None = None,
+) -> str:
+    suffix = Path(name).suffix.lower()
+    if suffix not in SUPPORTED_SAMPLE_DOC_TYPES:
+        raise ValueError(f"unsupported document type: {suffix}")
+
+    owns_blob_service = blob_service_client is None
+    owns_credential = credential is None and owns_blob_service
+    resolved_credential = credential
+    try:
+        if owns_blob_service:
+            resolved_credential = credential if credential is not None else default_credential()
+            blob_service_client = BlobServiceClient(
+                account_url=config.storage_account_url,
+                credential=resolved_credential,
+            )
+        container = blob_service_client.get_container_client(config.storage_container)
+        try:
+            container.create_container()
+        except Exception:
+            pass
+        blob = container.get_blob_client(name)
+        blob.upload_blob(
+            data,
+            overwrite=True,
+            content_settings=ContentSettings(content_type=SUPPORTED_SAMPLE_DOC_TYPES[suffix]),
+        )
+        return name
+    finally:
+        try:
+            if owns_blob_service and blob_service_client is not None:
+                blob_service_client.close()
+        finally:
+            if owns_credential and resolved_credential is not None:
+                resolved_credential.close()
+
+
 def upload_sample_docs(
     config: AppConfig,
     docs_dir: Path = Path("sample_docs"),
@@ -297,7 +394,7 @@ def run_indexer(
         deadline = time.time() + 180
         status: dict[str, Any] = {}
         while time.time() < deadline:
-            status = _request(config, "GET", f"/indexers/{config.indexer_name}/status", credential=resolved, session=session)
+            status = get_indexer_status(config, credential=resolved, session=session)
             last = status.get("lastResult") or {}
             if last.get("status") in {"success", "transientFailure", "persistentFailure"}:
                 return status
