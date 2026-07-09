@@ -119,9 +119,10 @@ def test_format_search_results_empty_message():
 
 def test_search_docs_tool_uses_rag_retrieve():
     class FakeRag:
-        def retrieve(self, question, top=5):
+        def retrieve(self, question, top=5, *, source=None):
             assert question == "security overview"
             assert top == 3
+            assert source is None
             return [
                 RetrievedChunk(
                     title="product-manual.pdf",
@@ -141,6 +142,28 @@ def test_search_docs_tool_uses_rag_retrieve():
     assert isinstance(payload["retrieval_ms"], int)
     assert payload["retrieval_ms"] >= 0
     assert "score" not in payload["citations"][0]
+
+
+def test_search_docs_tool_passes_source_to_retrieve():
+    class FakeRag:
+        def retrieve(self, question, top=5, *, source=None):
+            assert question == "battery capacity"
+            assert top == 5
+            assert source == "Tesla Powerwall"
+            return [
+                RetrievedChunk(
+                    title="tesla-powerwall-3-owner-manual.pdf",
+                    chunk="Battery capacity is 13.5 kWh.",
+                    source_path="tesla-powerwall-3-owner-manual.pdf",
+                    score=2.8,
+                )
+            ]
+
+    tool = create_search_docs_tool(FakeRag())
+    result = tool(question="battery capacity", source="Tesla Powerwall")
+
+    payload = json.loads(result)
+    assert "13.5 kWh" in payload["context"]
 
 
 def test_final_answer_text_ignores_tool_context_messages():
@@ -173,7 +196,7 @@ def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
     monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
 
     class FakeRag:
-        def retrieve(self, question, top=5):
+        def retrieve(self, question, top=5, *, source=None):
             return [
                 RetrievedChunk(
                     title="product-manual.pdf",
@@ -203,7 +226,7 @@ def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
         def __init__(self):
             self.calls = 0
 
-        def retrieve(self, _question, top=5):
+        def retrieve(self, _question, top=5, *, source=None):
             self.calls += 1
             return [
                 RetrievedChunk(
@@ -324,6 +347,7 @@ def test_create_rag_agent_registers_search_tool(monkeypatch):
 
     assert agent.name == "azure-rag-agent"
     assert "search_docs" in agent.instructions
+    assert "source parameter" in agent.instructions
     assert "indexed documents" in agent.instructions
     assert "Use inline citations in the answer body" in agent.instructions
     assert "Do not collect citations only at the end" in agent.instructions

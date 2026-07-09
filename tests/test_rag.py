@@ -247,6 +247,75 @@ def test_retrieve_filters_out_low_scoring_chunks():
     assert chunks[0].source_path == "high.md"
 
 
+def test_retrieve_applies_source_title_filter():
+    class FilterResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"value": []}
+
+    class FilterSession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, _url, **kwargs):
+            self.calls.append(kwargs)
+            return FilterResponse()
+
+    session = FilterSession()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+    service.retrieve("battery capacity", source="Tesla Powerwall")
+
+    assert session.calls[0]["json"]["filter"] == "search.ismatch('Tesla Powerwall', 'title')"
+
+
+def test_retrieve_escapes_single_quotes_in_source_filter():
+    class FilterResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"value": []}
+
+    class FilterSession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, _url, **kwargs):
+            self.calls.append(kwargs)
+            return FilterResponse()
+
+    session = FilterSession()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+    service.retrieve("warranty", source="Bob's Manual")
+
+    assert session.calls[0]["json"]["filter"] == "search.ismatch('Bob''s Manual', 'title')"
+
+
+def test_retrieve_omits_filter_when_source_not_set():
+    session = FakeSession()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+    service.retrieve("security")
+
+    assert "filter" not in session.calls[0][1]["json"]
+
+
 def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
     tracer = CapturingTracer()
     monkeypatch.setattr("azure_rag.rag.tracer", tracer)

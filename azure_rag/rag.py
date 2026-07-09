@@ -74,16 +74,27 @@ class RagService:
             if self._owns_credential:
                 self.credential.close()
 
-    def retrieve(self, question: str, top: int = 5) -> list[RetrievedChunk]:
+    def retrieve(
+        self,
+        question: str,
+        top: int = 5,
+        *,
+        source: str | None = None,
+    ) -> list[RetrievedChunk]:
         started = perf_counter()
         with tracer.start_as_current_span("rag.retrieve") as span:
             span.set_attribute("rag.question", question)
             span.set_attribute("azure.search.index", self.config.search_index)
             span.set_attribute("rag.retrieval.top", top)
+            if source:
+                span.set_attribute("rag.retrieval.source", source)
+            run_inputs: dict[str, Any] = {"question": question, "top": top}
+            if source:
+                run_inputs["source"] = source
             run = start_langsmith_run(
                 name="Retrieve Context",
                 run_type="retriever",
-                inputs={"question": question, "top": top},
+                inputs=run_inputs,
                 metadata={"azure.search.index": self.config.search_index},
             )
             try:
@@ -109,6 +120,9 @@ class RagService:
                         }
                     ],
                 }
+                if source:
+                    escaped = source.replace("'", "''")
+                    body["filter"] = f"search.ismatch('{escaped}', 'title')"
                 response = self.session.post(
                     url,
                     headers={

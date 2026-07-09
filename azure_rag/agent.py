@@ -35,6 +35,10 @@ from the indexed documents. Do not say the context is empty.
 
 For personal or conversational details already shared in the chat history
 (for example the user's name), answer from history and do not call search_docs.
+
+When the user scopes a question to a specific document or product (for example
+"in the ecobee manual" or "for the Tesla Powerwall"), pass that name in the
+source parameter of search_docs so retrieval is limited to matching titles.
 """.strip()
 
 _model_call_count: ContextVar[int] = ContextVar("model_call_count", default=0)
@@ -300,17 +304,29 @@ def create_search_docs_tool(rag: RagService):
     def search_docs(
         question: Annotated[str, Field(description="The knowledge-base question to search for.")],
         top: Annotated[int, Field(description="Maximum number of chunks to return.", ge=1, le=10)] = 5,
+        source: Annotated[
+            str | None,
+            Field(
+                description="Optional document or product name to scope search to (matched against title).",
+                default=None,
+            ),
+        ] = None,
     ) -> str:
         """Search indexed documents in Azure AI Search and return relevant chunks."""
         with tracer.start_as_current_span("rag.search_docs_tool") as span:
             span.set_attribute("rag.question", question)
             span.set_attribute("rag.retrieval.top", top)
-            query_key = (question.strip().casefold(), top)
+            if source:
+                span.set_attribute("rag.retrieval.source", source)
+            query_key = (question.strip().casefold(), top, (source or "").strip().casefold())
             seen_queries = _search_queries.get()
+            tool_inputs: dict[str, Any] = {"question": question, "top": top}
+            if source:
+                tool_inputs["source"] = source
             run = start_langsmith_run(
                 name="Search Docs Tool",
                 run_type="tool",
-                inputs={"question": question, "top": top},
+                inputs=tool_inputs,
                 metadata={"tool": "search_docs"},
             )
             try:
@@ -327,7 +343,7 @@ def create_search_docs_tool(rag: RagService):
                 if seen_queries is not None:
                     seen_queries.add(query_key)
                 retrieval_started = perf_counter()
-                chunks = rag.retrieve(question, top=top)
+                chunks = rag.retrieve(question, top=top, source=source)
                 retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
                 result = format_search_results(chunks, retrieval_ms=retrieval_ms)
                 span.set_attribute("rag.retrieval.result_count", len(chunks))
