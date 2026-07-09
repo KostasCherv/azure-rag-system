@@ -22,12 +22,6 @@ resource api 'Microsoft.ApiManagement/service/apis@2024-05-01' = {
   }
 }
 
-resource query 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
-  parent: api
-  name: 'query'
-  properties: { displayName: 'Query', method: 'POST', urlTemplate: '/query' }
-}
-
 resource agui 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: api
   name: 'agui'
@@ -55,5 +49,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [query, agui, ready]
+  dependsOn: [agui, ready]
 }

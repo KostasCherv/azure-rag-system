@@ -1,6 +1,6 @@
 from azure_rag.auth import AZURE_SEARCH_SCOPE
 from azure_rag.config import AppConfig
-from azure_rag.rag import RagService, RetrievedChunk, build_messages
+from azure_rag.rag import RagService, RetrievedChunk, source_label
 
 
 def config():
@@ -152,25 +152,16 @@ def test_rag_service_closes_owned_credential_if_client_construction_fails(monkey
     assert credential.closed is True
 
 
-def test_build_messages_include_context_citations_and_question():
-    messages = build_messages(
-        "What does the support policy say?",
-        [
-            RetrievedChunk(
-                title="support.md",
-                chunk="Premium support replies within 4 business hours.",
-                source_path="docs/support.md",
-                score=2.1,
-            )
-        ],
+def test_source_label_falls_back_to_source_filename_when_title_missing():
+    label = source_label(
+        RetrievedChunk(
+            title="",
+            chunk="text",
+            source_path="/sample-docs/contoso-support.md",
+            score=2.4,
+        )
     )
-
-    assert messages[0]["role"] == "system"
-    assert "grounded assistant" in messages[0]["content"]
-    assert messages[1]["role"] == "user"
-    assert "support.md" in messages[1]["content"]
-    assert "Premium support replies within 4 business hours." in messages[1]["content"]
-    assert "What does the support policy say?" in messages[1]["content"]
+    assert label == "contoso-support.md"
 
 
 def test_retrieve_filters_out_low_scoring_chunks():
@@ -216,39 +207,3 @@ def test_retrieve_filters_out_low_scoring_chunks():
     assert len(chunks) == 1
     assert chunks[0].source_path == "high.md"
 
-
-def test_answer_returns_sources_from_retrieval():
-    class RecordingCompletions:
-        def create(self, **kwargs):
-            return type(
-                "Completion",
-                (),
-                {
-                    "choices": [
-                        type(
-                            "Choice",
-                            (),
-                            {"message": type("Message", (), {"content": "Encrypted at rest. [1]"})()},
-                        )()
-                    ]
-                },
-            )()
-
-    class RecordingOpenAI:
-        def __init__(self):
-            self.chat = type("Chat", (), {"completions": RecordingCompletions()})()
-
-        def close(self):
-            pass
-
-    service = RagService(
-        config(),
-        credential=FakeCredential(),
-        openai_client=RecordingOpenAI(),
-        session=FakeSession(),
-    )
-
-    result = service.answer("What is Contoso's security overview?")
-
-    assert result["answer"] == "Encrypted at rest. [1]"
-    assert result["sources"][0]["source_path"] == "doc.md"

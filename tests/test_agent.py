@@ -32,6 +32,7 @@ def test_format_search_results_numbers_chunks():
     )
 
     assert "[1] contoso-security.md" in text
+    assert "(contoso-security.md)" not in text
     assert "Data is encrypted at rest." in text
     assert "score=2.4" in text
 

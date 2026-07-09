@@ -6,29 +6,11 @@ from typing import Any
 from agent_framework_ag_ui import add_agent_framework_fastapi_endpoint
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 
 from .agent import create_rag_agent
 from .config import AppConfig
 from .rag import RagService
 from .readiness import ReadinessService, probe_openai, probe_search
-
-
-class QueryRequest(BaseModel):
-    question: str = Field(min_length=1)
-    top: int = Field(default=5, ge=1, le=10)
-
-
-class Source(BaseModel):
-    title: str
-    source_path: str
-    score: float | None = None
-    preview: str
-
-
-class QueryResponse(BaseModel):
-    answer: str
-    sources: list[Source]
 
 
 def create_app(
@@ -79,10 +61,6 @@ def create_app(
     def ready(request: Request) -> JSONResponse:
         result = request.app.state.readiness.check()
         return JSONResponse(result.response_body(), status_code=result.http_status)
-
-    @application.post("/query", response_model=QueryResponse)
-    def query(input_data: QueryRequest, request: Request) -> dict:
-        return request.app.state.rag.answer(input_data.question, top=input_data.top)
 
     return application
 

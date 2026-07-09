@@ -1,6 +1,6 @@
 # Azure AI Search RAG Demo
 
-An Azure-native retrieval-augmented generation (RAG) application that uses Azure AI Search for the full document retrieval pipeline: Blob ingestion, chunking, integrated embeddings, vector indexing, semantic ranking, and hybrid search. FastAPI exposes the RAG service through JSON and AG-UI endpoints, while a Next.js and CopilotKit interface provides the browser experience.
+An Azure-native retrieval-augmented generation (RAG) application that uses Azure AI Search for the full document retrieval pipeline: Blob ingestion, chunking, integrated embeddings, vector indexing, semantic ranking, and hybrid search. FastAPI exposes AG-UI chat and readiness for the Next.js CopilotKit UI.
 
 Azure service-to-service access uses managed identities and least-privilege RBAC. The production topology uses API Management Standard v2 to validate Microsoft Entra tokens from the UI identity, enforce per-caller limits, and replace inbound credentials with its managed identity before reaching the private API.
 
@@ -19,7 +19,7 @@ flowchart LR
 
     subgraph App[Application]
         APIM[API Management Standard v2<br/>Entra validation + caller limits]
-        API[FastAPI RAG service<br/>/health /ready /query /agui]
+        API[FastAPI RAG service<br/>/health /ready /agui]
         Runtime[CopilotKit runtime<br/>Next.js API route]
         UI[Next.js chat UI<br/>CopilotKit React]
     end
@@ -103,13 +103,13 @@ sequenceDiagram
 | Skillset | Azure AI Search integrated vectorization | Enriches documents during indexing | 1,800-character page chunks; 250-character overlap; Azure OpenAI embedding skill; index projections |
 | Indexer | Azure AI Search indexer | Orchestrates Blob extraction and enrichment | Content and metadata extraction; strict zero-failure policy; status polling |
 | Retrieval | `azure_rag/rag.py` | Finds grounding context | Semantic hybrid search: full-text query, integrated query vectorization, HNSW candidates, semantic reranking, captions, and answers requested from Search |
-| Generation | Azure OpenAI chat deployment | Produces the final answer | Low-temperature grounded prompt; numbered citations; explicit insufficient-context behavior |
-| API | FastAPI | Exposes application operations | Health check, typed JSON query API, Agent Framework AG-UI streaming endpoint, generated OpenAPI docs |
+| Generation | Azure OpenAI chat deployment | Produces the final answer | Agent Framework streams grounded answers; citations from `search_docs` tool results |
+| API | FastAPI | Exposes UI-facing operations | Process health, readiness, Agent Framework AG-UI streaming endpoint |
 | Agent runtime | Microsoft Agent Framework + AG-UI | Owns chat streaming and tool calls | Azure OpenAI agent with `search_docs` tool; AG-UI SSE via `agent-framework-ag-ui` |
 | Agent protocol | AG-UI | Standardizes UI-to-agent communication | Run lifecycle, text-message lifecycle, and error events over an event stream |
 | Web runtime | CopilotKit runtime in Next.js | Server-side agent bridge | `HttpAgent` proxy to FastAPI; backend URL kept server-side |
 | Web UI | Next.js, React, CopilotKit | Interactive test console | Responsive chat, suggested questions, answer rendering, and source display |
-| API gateway | API Management Standard v2 | Authenticated public API boundary | Tenant/audience/client validation; 30 calls per 60 seconds and 500 calls per day for expensive routes; managed-identity backend auth |
+| API gateway | API Management Standard v2 | Authenticated public API boundary | Tenant/audience/client validation; 30 calls per 60 seconds and 500 calls per day for `/agui`; managed-identity backend auth |
 | Deployment | Bicep and Container Apps | Reproducible application infrastructure | Public UI environment, internal API environment, VNet/DNS, APIM, identities, RBAC, and policies |
 
 ## Azure Resources
@@ -134,7 +134,7 @@ Production infrastructure is defined in `infra/main.bicep` and its focused modul
 | Layer | Provisioned behavior |
 |---|---|
 | Public application | Next.js runs in a public Container Apps environment and uses its system-assigned identity to obtain an Entra token for APIM |
-| API gateway | APIM Standard v2 validates tenant, audience, and caller identity; applies shared limits of 30 requests per minute and 500 requests per day to `/query` and `/agui`; and authenticates to FastAPI with its managed identity |
+| API gateway | APIM Standard v2 validates tenant, audience, and caller identity; applies shared limits of 30 requests per minute and 500 requests per day to `/agui`; and authenticates to FastAPI with its managed identity |
 | Private application | FastAPI runs in a separate VNet-injected internal Container Apps environment with Container Apps authentication restricted to the APIM identity |
 | Network and DNS | Dedicated APIM and API subnets plus private DNS allow APIM to resolve and reach the internal API without exposing a public API ingress |
 | Azure dependencies | Existing OpenAI, Search, and Storage resources are referenced by ID and endpoint rather than recreated |
@@ -344,32 +344,6 @@ It returns HTTP 200 with `ready` when dependencies work and documents are presen
 }
 ```
 
-### `POST /query`
-
-Runs hybrid retrieval and grounded generation. `top` must be between 1 and 10.
-
-```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{"question":"What is the Premium support response time?","top":5}'
-```
-
-Response shape:
-
-```json
-{
-  "answer": "Premium support has a four-business-hour response time [1].",
-  "sources": [
-    {
-      "title": "contoso-support.md",
-      "source_path": "...",
-      "score": 2.8,
-      "preview": "..."
-    }
-  ]
-}
-```
-
 ### `POST /agui`
 
 Served by Microsoft Agent Framework's AG-UI bridge (`agent-framework-ag-ui`). The agent streams model tokens over AG-UI events and calls a `search_docs` tool that wraps Azure AI Search retrieval. CopilotKit consumes those deltas out of the box.
@@ -412,17 +386,17 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - Indexing is manually triggered and has no recurring schedule.
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
-- `/agui` is hosted by Agent Framework AG-UI streaming; the agent decides when to call `search_docs`. `/query` remains a direct `RagService.answer` JSON path.
+- `/agui` is the only chat endpoint and is hosted by Agent Framework AG-UI streaming; the agent decides when to call `search_docs`.
 - Client disconnect cancellation of upstream generation is not implemented yet.
 - The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
-- APIM rate-limits and quotas `/query` and `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
+- APIM rate-limits and quotas `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.
 
 ## Production Roadmap
 
 ### Delivered
 
-- APIM and Entra workload authentication protect `/query`, `/agui`, and `/ready`; APIM applies a shared 30-request/minute rate limit and 500-request/day quota to query traffic.
+- APIM and Entra workload authentication protect `/agui` and `/ready`; APIM applies a shared 30-request/minute rate limit and 500-request/day quota to AG-UI traffic.
 - Managed identities replace application API keys for OpenAI, Search, and Storage. Search-integrated vectorization, skillsets, and Blob ingestion are also keyless.
 - `/health` provides process liveness, while cached `/ready` probes Search document count, OpenAI availability, and the latest indexer result with correct 200/503 semantics.
 - The UI reports live readiness and indexer status, removes stale connection state, and gates chat until dependencies are ready.

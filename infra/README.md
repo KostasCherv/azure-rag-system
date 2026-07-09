@@ -1,6 +1,6 @@
 # Secure Azure deployment
 
-This deployment creates two Azure Container Apps environments: a public environment for the Next.js UI and a VNet-injected internal environment for FastAPI. API Management Standard v2 uses outbound VNet integration and private DNS to reach the internal API. The API ingress is reachable through the internal environment load balancer but has no public path. APIM validates the UI's Entra token, applies shared caller limits to `/query` and `/agui`, and replaces the inbound credential with its managed-identity token for the backend audience. `/ready` requires authentication but is not charged against the expensive-query quota; `/health` is only used inside the Container Apps environment.
+This deployment creates two Azure Container Apps environments: a public environment for the Next.js UI and a VNet-injected internal environment for FastAPI. API Management Standard v2 uses outbound VNet integration and private DNS to reach the internal API. The API ingress is reachable through the internal environment load balancer but has no public path. APIM validates the UI's Entra token, applies shared caller limits to `/agui`, and replaces the inbound credential with its managed-identity token for the backend audience. `/ready` requires authentication but is not charged against the expensive-query quota; `/health` is only used inside the Container Apps environment.
 
 ## Prerequisites
 
@@ -63,6 +63,6 @@ The setup script creates or updates the index, data source, skillset, and indexe
 3. From the UI, call readiness and verify APIM returns 200 after RBAC propagation.
 4. Call `/rag/ready` without a token and with the wrong audience; both must return 401.
 5. Call with a valid audience but a different application/service principal; it must return 403.
-6. Verify `/rag/query` and `/rag/agui` work through APIM and receive a 429 with `Retry-After` after 30 calls in 60 seconds for one caller key.
-7. Verify repeated `/rag/ready` calls do not consume the query quota.
+6. Verify `/rag/agui` works through APIM and receives a 429 with `Retry-After` after 30 calls in 60 seconds for one caller key.
+7. Verify repeated `/rag/ready` calls do not consume the AG-UI quota.
 8. Inspect API, Search, Storage, and OpenAI role assignments and confirm no owner/general contributor or key-based access was introduced.

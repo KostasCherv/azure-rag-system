@@ -8,7 +8,7 @@ from pydantic import Field
 
 from .auth import openai_token_provider
 from .config import AppConfig
-from .rag import RagService
+from .rag import RagService, source_label
 
 AGENT_INSTRUCTIONS = """
 You are a Contoso document assistant backed by Azure AI Search.
@@ -31,12 +31,10 @@ def format_search_results(chunks: list[Any]) -> str:
         return "No relevant documents found above the configured score threshold."
     lines: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
-        title = getattr(chunk, "title", "") or getattr(chunk, "source_path", "") or "source"
-        source_path = getattr(chunk, "source_path", "") or title
         content = getattr(chunk, "chunk", "")
         score = getattr(chunk, "score", None)
         score_text = f" score={score}" if score is not None else ""
-        lines.append(f"[{index}] {title} ({source_path}){score_text}\n{content}")
+        lines.append(f"[{index}] {source_label(chunk)}{score_text}\n{content}")
     return "\n\n".join(lines)
 
 
