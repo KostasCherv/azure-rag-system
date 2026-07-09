@@ -3,11 +3,13 @@
 import { CopilotChat } from "@copilotkit/react-core/v2";
 import { CitationToolRenderer } from "./citation-tool-renderer";
 import { CitationMarkdownRenderer } from "./citation-markdown";
+import { SuggestedQuestions } from "./suggested-questions";
 
 export function Chat() {
   return (
     <>
       <CitationToolRenderer />
+      <SuggestedQuestions />
       <CopilotChat
         agentId="default"
         welcomeScreen
