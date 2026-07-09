@@ -22,6 +22,7 @@ class AppConfig:
     storage_resource_id: str
     embedding_dimensions: int = 1536
     search_api_version: str = "2026-05-01-preview"
+    search_min_score: float = 1.5
 
     @classmethod
     def from_env(cls, load_dotenv_file: bool = True) -> "AppConfig":
@@ -30,7 +31,9 @@ class AppConfig:
         required = {
             "AZURE_OPENAI_ENDPOINT": os.getenv("AZURE_OPENAI_ENDPOINT"),
             "AZURE_OPENAI_CHAT_DEPLOYMENT": os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),
-            "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),
+            "AZURE_OPENAI_EMBEDDING_DEPLOYMENT": os.getenv(
+                "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+            ),
             "AZURE_SEARCH_ENDPOINT": os.getenv("AZURE_SEARCH_ENDPOINT"),
             "AZURE_SEARCH_INDEX": os.getenv("AZURE_SEARCH_INDEX"),
             "AZURE_STORAGE_ACCOUNT_URL": os.getenv("AZURE_STORAGE_ACCOUNT_URL"),
@@ -45,12 +48,15 @@ class AppConfig:
         return cls(
             azure_openai_endpoint=required["AZURE_OPENAI_ENDPOINT"].rstrip("/"),
             azure_openai_chat_deployment=required["AZURE_OPENAI_CHAT_DEPLOYMENT"],
-            azure_openai_embedding_deployment=required["AZURE_OPENAI_EMBEDDING_DEPLOYMENT"],
+            azure_openai_embedding_deployment=required[
+                "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+            ],
             search_endpoint=required["AZURE_SEARCH_ENDPOINT"].rstrip("/"),
             search_index=required["AZURE_SEARCH_INDEX"],
             storage_account_url=required["AZURE_STORAGE_ACCOUNT_URL"].rstrip("/"),
             storage_container=required["AZURE_STORAGE_CONTAINER"],
             storage_resource_id=required["AZURE_STORAGE_RESOURCE_ID"],
+            search_min_score=float(os.getenv("AZURE_SEARCH_MIN_SCORE", "2.0")),
         )
 
     @property

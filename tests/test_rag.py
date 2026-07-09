@@ -42,7 +42,7 @@ class FakeResponse:
         pass
 
     def json(self):
-        return {"value": [{"title": "doc", "chunk": "text", "source_path": "doc.md", "@search.score": 1.0}]}
+        return {"value": [{"title": "doc", "chunk": "text", "source_path": "doc.md", "@search.rerankerScore": 2.5}]}
 
 
 class FakeSession:
@@ -238,3 +238,42 @@ def test_rag_answer_passes_history_to_chat_completion():
     sent = openai_client.chat.completions.kwargs["messages"]
     assert sent[1]["content"] == "Hi my name is kostas"
     assert "whats my name" in sent[-1]["content"]
+
+
+def test_retrieve_filters_out_low_scoring_chunks():
+    class FilterResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "value": [
+                    {
+                        "title": "high",
+                        "chunk": "keep",
+                        "source_path": "high.md",
+                        "@search.rerankerScore": 2.6,
+                    },
+                    {
+                        "title": "low",
+                        "chunk": "drop",
+                        "source_path": "low.md",
+                        "@search.rerankerScore": 1.8,
+                    },
+                    {
+                        "title": "none",
+                        "chunk": "drop",
+                        "source_path": "none.md",
+                    },
+                ]
+            }
+
+    class FilterSession:
+        def post(self, *_args, **_kwargs):
+            return FilterResponse()
+
+    service = RagService(config(), credential=FakeCredential(), openai_client=FakeOpenAIClient(), session=FilterSession())
+    chunks = service.retrieve("security")
+
+    assert len(chunks) == 1
+    assert chunks[0].source_path == "high.md"

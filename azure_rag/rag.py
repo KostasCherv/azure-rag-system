@@ -120,7 +120,7 @@ class RagService:
         )
         response.raise_for_status()
         results = response.json().get("value", [])
-        return [
+        chunks = [
             RetrievedChunk(
                 title=item.get("title", ""),
                 chunk=item.get("chunk", ""),
@@ -128,6 +128,9 @@ class RagService:
                 score=item.get("@search.rerankerScore") or item.get("@search.score"),
             )
             for item in results
+        ]
+        return [
+            chunk for chunk in chunks if chunk.score is not None and chunk.score >= self.config.search_min_score
         ]
 
     def answer(

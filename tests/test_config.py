@@ -45,6 +45,16 @@ def test_config_loads_keyless_values_and_normalizes_endpoints(monkeypatch):
     assert config.storage_resource_id == REQUIRED_ENV["AZURE_STORAGE_RESOURCE_ID"]
     assert config.semantic_configuration == "rag-index-semantic"
     assert config.data_source_name == "rag-index-blob-datasource"
+    assert config.search_min_score == 2.0
     assert not hasattr(config, "azure_openai_api_key")
     assert not hasattr(config, "search_api_key")
     assert not hasattr(config, "storage_connection_string")
+
+
+def test_config_allows_overriding_search_min_score(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("AZURE_SEARCH_MIN_SCORE", "2.75")
+
+    config = AppConfig.from_env(load_dotenv_file=False)
+
+    assert config.search_min_score == 2.75
