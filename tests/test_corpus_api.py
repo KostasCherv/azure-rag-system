@@ -117,3 +117,49 @@ def test_corpus_maps_azure_failures_to_sanitized_errors(monkeypatch):
         response = client.get("/corpus/indexer")
         assert response.status_code == 503
         assert response.json()["detail"] == "authorization failed"
+
+
+def test_corpus_documents_delete(monkeypatch):
+    monkeypatch.setattr(
+        "azure_rag.corpus.remove_corpus_document",
+        lambda *args, **kwargs: {"name": "guide.md", "deleted_chunks": 3},
+    )
+
+    app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
+    with TestClient(app) as client:
+        response = client.delete("/corpus/documents/guide.md")
+        assert response.status_code == 200
+        assert response.json() == {"name": "guide.md", "deleted_chunks": 3}
+
+
+def test_corpus_documents_delete_rejects_invalid_name(monkeypatch):
+    app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
+    with TestClient(app) as client:
+        response = client.delete("/corpus/documents/notes.txt")
+        assert response.status_code == 400
+
+
+def test_corpus_documents_delete_returns_not_found(monkeypatch):
+    def fake_remove(*args, **kwargs):
+        raise FileNotFoundError("guide.md")
+
+    monkeypatch.setattr("azure_rag.corpus.remove_corpus_document", fake_remove)
+
+    app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
+    with TestClient(app) as client:
+        response = client.delete("/corpus/documents/guide.md")
+        assert response.status_code == 404
+        assert response.json()["detail"] == "document not found"
+
+
+def test_corpus_documents_delete_maps_azure_failures(monkeypatch):
+    monkeypatch.setattr(
+        "azure_rag.corpus.remove_corpus_document",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AzureSearchError("POST failed: 403 forbidden secret")),
+    )
+
+    app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
+    with TestClient(app) as client:
+        response = client.delete("/corpus/documents/guide.md")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "authorization failed"

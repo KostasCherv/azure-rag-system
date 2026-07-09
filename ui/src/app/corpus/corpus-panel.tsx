@@ -1,5 +1,6 @@
 "use client";
 
+import { FileText } from "lucide-react";
 import { type ChangeEvent, useCallback, useEffect, useState } from "react";
 
 type CorpusDocument = {
@@ -29,6 +30,7 @@ export function CorpusPanel() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [deletingName, setDeletingName] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const refreshDocuments = useCallback(async () => {
@@ -126,26 +128,54 @@ export function CorpusPanel() {
     }
   };
 
+  const onDelete = async (name: string) => {
+    if (!window.confirm(`Remove ${name} from corpus and search index?`)) return;
+    setDeletingName(name);
+    setMessage(null);
+    try {
+      const response = await fetch(`/api/corpus/documents/${encodeURIComponent(name)}`, { method: "DELETE" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.detail === "string" ? body.detail : "delete failed");
+      }
+      const result = await response.json() as { name: string; deleted_chunks: number };
+      await refreshDocuments();
+      setMessage(`Deleted ${result.name} (${result.deleted_chunks} chunks removed).`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "delete failed");
+    } finally {
+      setDeletingName(null);
+    }
+  };
+
   return (
     <section className="corpus-panel">
       <div className="corpus-actions">
-        <label className="corpus-upload">
+        <label className="corpus-btn corpus-btn-primary corpus-upload">
           <input type="file" accept=".pdf,.md" onChange={onUpload} disabled={uploading} />
           {uploading ? "Uploading..." : "Upload document"}
         </label>
-        <button type="button" onClick={() => void onRunIndexer()} disabled={running || indexer.status === "running"}>
+        <button
+          type="button"
+          className="corpus-btn"
+          onClick={() => void onRunIndexer()}
+          disabled={running || indexer.status === "running"}
+        >
           {running ? "Starting..." : "Run indexer"}
         </button>
-        <button type="button" onClick={() => void refreshAll()} disabled={loading}>
+        <button type="button" className="corpus-btn" onClick={() => void refreshAll()} disabled={loading}>
           Refresh
         </button>
       </div>
 
-      <p className="corpus-indexer" aria-live="polite">
-        Indexer: {indexer.status}
-        {indexer.ended_at ? ` · ${new Date(indexer.ended_at).toLocaleString()}` : ""}
-        {indexer.error ? ` · ${indexer.error}` : ""}
-      </p>
+      <div className="corpus-meta">
+        <p className="corpus-indexer" aria-live="polite">
+          Indexer:{" "}
+          <span className={`indexer-badge indexer-${indexer.status}`}>{indexer.status}</span>
+          {indexer.ended_at ? ` · ${new Date(indexer.ended_at).toLocaleString()}` : ""}
+          {indexer.error ? ` · ${indexer.error}` : ""}
+        </p>
+      </div>
 
       {message && <p className="corpus-message">{message}</p>}
 
@@ -154,24 +184,42 @@ export function CorpusPanel() {
       ) : documents.length === 0 ? (
         <p className="corpus-placeholder">No documents in the corpus container.</p>
       ) : (
-        <table className="corpus-table">
-          <thead>
-            <tr>
-              <th scope="col">Name</th>
-              <th scope="col">Size</th>
-              <th scope="col">Last modified</th>
-            </tr>
-          </thead>
-          <tbody>
-            {documents.map((document) => (
-              <tr key={document.name}>
-                <td>{document.name}</td>
-                <td>{formatBytes(document.size)}</td>
-                <td>{document.last_modified ? new Date(document.last_modified).toLocaleString() : "—"}</td>
+        <div className="corpus-table-wrap">
+          <table className="corpus-table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Size</th>
+                <th scope="col">Last modified</th>
+                <th scope="col">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {documents.map((document) => (
+                <tr key={document.name}>
+                  <td>
+                    <div className="corpus-file-name">
+                      <FileText size={15} aria-hidden="true" />
+                      <span>{document.name}</span>
+                    </div>
+                  </td>
+                  <td className="corpus-size">{formatBytes(document.size)}</td>
+                  <td>{document.last_modified ? new Date(document.last_modified).toLocaleString() : "—"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="corpus-delete"
+                      onClick={() => void onDelete(document.name)}
+                      disabled={deletingName === document.name}
+                    >
+                      {deletingName === document.name ? "Deleting..." : "Delete"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );

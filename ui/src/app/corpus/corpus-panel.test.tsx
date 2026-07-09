@@ -13,7 +13,8 @@ describe("CorpusPanel", () => {
     render(<CorpusPanel />);
     expect(screen.getByText("Loading documents...")).toBeTruthy();
     await screen.findByText("guide.md");
-    expect(screen.getByText(/Indexer: success/)).toBeTruthy();
+    expect(screen.getByText(/Indexer:/)).toBeTruthy();
+    expect(screen.getByText("success")).toBeTruthy();
   });
 
   it("uploads a document and refreshes the list", async () => {

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from .readiness import IndexerResult, normalize_indexer, sanitize_error
 from .search_pipeline import (
     AzureSearchError,
+    delete_corpus_document as remove_corpus_document,
     get_indexer_status,
     list_documents,
     run_indexer,
@@ -77,6 +78,34 @@ async def upload_corpus_document(request: Request, file: UploadFile = File(...))
             detail=sanitize_error(exc, "failed to upload document"),
         ) from exc
     return {"name": uploaded}
+
+
+@router.delete("/documents/{name}")
+def delete_corpus_document(request: Request, name: str) -> dict[str, Any]:
+    rag = request.app.state.rag
+    filename = sanitize_filename(name)
+    try:
+        return remove_corpus_document(
+            rag.config,
+            filename,
+            credential=rag.credential,
+            session=rag.session,
+            blob_service_client=None,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="document not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except AzureSearchError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=sanitize_error(exc, "failed to delete document"),
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=sanitize_error(exc, "failed to delete document"),
+        ) from exc
 
 
 @router.get("/indexer")

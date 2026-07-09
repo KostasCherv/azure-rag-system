@@ -181,6 +181,111 @@ def upload_document(
                 resolved_credential.close()
 
 
+def _escape_odata_string(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def delete_index_documents_by_title(
+    config: AppConfig,
+    title: str,
+    *,
+    credential: TokenCredential | None = None,
+    session: Any = requests,
+) -> int:
+    deleted = 0
+    odata_filter = f"title eq '{_escape_odata_string(title)}'"
+    with _credential_scope(credential) as resolved:
+        while True:
+            result = _request(
+                config,
+                "POST",
+                f"/indexes/{config.search_index}/docs/search",
+                credential=resolved,
+                session=session,
+                json={
+                    "search": "*",
+                    "filter": odata_filter,
+                    "select": "document_id",
+                    "top": 1000,
+                },
+            )
+            hits = result.get("value") or []
+            if not hits:
+                break
+            batch = [{"@search.action": "delete", "document_id": hit["document_id"]} for hit in hits]
+            _request(
+                config,
+                "POST",
+                f"/indexes/{config.search_index}/docs/index",
+                credential=resolved,
+                session=session,
+                json={"value": batch},
+            )
+            deleted += len(batch)
+    return deleted
+
+
+def delete_document(
+    config: AppConfig,
+    name: str,
+    *,
+    credential: TokenCredential | None = None,
+    blob_service_client: Any | None = None,
+) -> None:
+    suffix = Path(name).suffix.lower()
+    if suffix not in SUPPORTED_SAMPLE_DOC_TYPES:
+        raise ValueError(f"unsupported document type: {suffix}")
+
+    owns_blob_service = blob_service_client is None
+    owns_credential = credential is None and owns_blob_service
+    resolved_credential = credential
+    try:
+        if owns_blob_service:
+            resolved_credential = credential if credential is not None else default_credential()
+            blob_service_client = BlobServiceClient(
+                account_url=config.storage_account_url,
+                credential=resolved_credential,
+            )
+        container = blob_service_client.get_container_client(config.storage_container)
+        blob = container.get_blob_client(name)
+        if not blob.exists():
+            raise FileNotFoundError(name)
+        blob.delete_blob()
+    finally:
+        try:
+            if owns_blob_service and blob_service_client is not None:
+                blob_service_client.close()
+        finally:
+            if owns_credential and resolved_credential is not None:
+                resolved_credential.close()
+
+
+def delete_corpus_document(
+    config: AppConfig,
+    name: str,
+    *,
+    credential: TokenCredential | None = None,
+    session: Any = requests,
+    blob_service_client: Any | None = None,
+) -> dict[str, Any]:
+    suffix = Path(name).suffix.lower()
+    if suffix not in SUPPORTED_SAMPLE_DOC_TYPES:
+        raise ValueError(f"unsupported document type: {suffix}")
+
+    deleted_chunks = delete_index_documents_by_title(
+        config,
+        name,
+        credential=credential,
+        session=session,
+    )
+    try:
+        delete_document(config, name, credential=credential, blob_service_client=blob_service_client)
+    except FileNotFoundError:
+        if deleted_chunks == 0:
+            raise
+    return {"name": name, "deleted_chunks": deleted_chunks}
+
+
 def upload_sample_docs(
     config: AppConfig,
     docs_dir: Path = Path("sample_docs"),

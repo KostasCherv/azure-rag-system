@@ -46,6 +46,12 @@ resource corpusUpload 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
   properties: { displayName: 'Corpus upload', method: 'POST', urlTemplate: '/corpus/documents' }
 }
 
+resource corpusDelete 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-delete'
+  properties: { displayName: 'Corpus delete', method: 'DELETE', urlTemplate: '/corpus/documents/{name}' }
+}
+
 resource corpusRun 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: api
   name: 'corpus-run'
@@ -73,5 +79,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [agui, ready, corpusList, corpusUpload, corpusRun, corpusStatus]
+  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus]
 }
