@@ -8,6 +8,7 @@ import type { NextRequest } from "next/server";
 
 import { getAgentUrl } from "@/lib/agent-url";
 import { getApimToken } from "@/lib/server-auth";
+import { getUserPrincipal, isUserAuthRequired } from "@/lib/user-auth";
 
 const serviceAdapter = new ExperimentalEmptyAdapter();
 
@@ -20,6 +21,9 @@ type Dependencies = {
 
 export function createPostHandler(deps: Dependencies) {
   return async (request: NextRequest) => {
+    if (isUserAuthRequired() && !getUserPrincipal(request.headers)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
     const token = await deps.getToken();
     const headers: Record<string, string> = {};
     if (token) {

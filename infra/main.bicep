@@ -13,6 +13,7 @@ param backendClientId string
 param apimAudience string
 param apimScope string
 param uiClientId string
+param uiUserAuthClientId string
 param publisherName string
 param publisherEmail string
 
@@ -103,6 +104,7 @@ module apps 'modules/container-apps.bicep' = {
     storageContainer: storageContainer
     storageResourceId: storageResourceId
     applicationInsightsConnectionString: applicationInsights.properties.ConnectionString
+    uiUserAuthClientId: uiUserAuthClientId
   }
 }
 

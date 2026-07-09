@@ -213,6 +213,8 @@ Keep `.env` out of source control. The checked-in `.env.example` contains resour
 
 The application and setup command use `DefaultAzureCredential`. In Azure, configure a system-assigned or user-assigned managed identity on the application host. For local development, sign in with a supported developer credential such as Azure CLI (`az login`); `DefaultAzureCredential` selects the available identity automatically.
 
+In deployed environments, the public UI Container App can require interactive Microsoft Entra sign-in through Container Apps Easy Auth. When `REQUIRE_USER_AUTH=true`, unauthenticated browser traffic is redirected to Entra, and the Next.js server rejects `/api/copilotkit` requests that do not include the `x-ms-client-principal` header injected by Easy Auth. Local development keeps `REQUIRE_USER_AUTH=false` in `ui/.env.local`.
+
 Azure OpenAI calls use the v1 endpoint and a bearer-token provider for `https://cognitiveservices.azure.com/.default`. Azure AI Search data-plane and management REST calls request `https://search.azure.com/.default`. Blob uploads pass the same token credential directly to `BlobServiceClient`.
 
 Azure AI Search itself uses its system-assigned managed identity for two indexing-time dependencies: reading the Blob data source and calling Azure OpenAI for vectorization and the embedding skill. The vectorizer and skillset deliberately omit both `apiKey` and `authIdentity`; omission selects the Search service's system-assigned identity.
@@ -381,7 +383,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 
 ## Current Scope and Limitations
 
-- APIM authenticates the deployed UI workload identity/application. Interactive end-user identity, per-user authorization, and tenant/document ACL enforcement are not implemented.
+- APIM authenticates the deployed UI workload identity/application. Per-user authorization and tenant/document ACL enforcement are not implemented.
 - Bicep provisions the application network, Container Apps, APIM, identities, policies, and RBAC. Search, OpenAI/model deployments, Storage, Entra app registrations, and the deployment resource group remain prerequisites.
 - Indexing is manually triggered and has no recurring schedule.
 - The index schema is specialized for extracted text; there is no layout-aware PDF, image, table, or OCR processing.
@@ -408,7 +410,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 | Priority | Addition | Exit criterion |
 |---|---|---|
 | P0 | Live Azure deployment and automated smoke suite | Prove VNet integration, private DNS, Easy Auth, RBAC propagation, managed-identity calls, readiness, and APIM throttling in the target subscription |
-| P0 | Interactive user authentication, per-user authorization, and request-size limits | Human users sign in; authorization and quotas are attributable to a user or tenant rather than only the UI workload |
+| P0 | Per-user authorization and request-size limits | Authorization and quotas are attributable to a user or tenant rather than only the UI workload |
 | P0 | Private endpoints for Search, OpenAI, Storage, and the image registry | Every dependency is reachable only through approved private network paths, including managed-identity image pulls |
 | P1 | Scheduled ingestion, deletion handling, dead-letter workflow, and alerting | Content stays synchronized automatically and failed documents produce actionable alerts |
 | P1 | Application Insights and OpenTelemetry | Dashboards expose retrieval/generation latency, token use, dependency failures, empty results, and readiness history |

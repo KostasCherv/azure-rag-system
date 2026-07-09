@@ -18,6 +18,7 @@ param storageAccountUrl string
 param storageContainer string
 param storageResourceId string
 param applicationInsightsConnectionString string
+param uiUserAuthClientId string
 
 resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${namePrefix}-api-env'
@@ -141,11 +142,37 @@ resource ui 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AGENT_URL', value: '${apimGatewayUrl}/rag/agui' }
             { name: 'READY_URL', value: '${apimGatewayUrl}/rag/ready' }
             { name: 'APIM_SCOPE', value: apimScope }
+            { name: 'REQUIRE_USER_AUTH', value: 'true' }
           ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
         }
       ]
       scale: { minReplicas: 1, maxReplicas: 10 }
+    }
+  }
+}
+
+resource uiAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
+  parent: ui
+  name: 'current'
+  properties: {
+    platform: { enabled: true }
+    globalValidation: {
+      unauthenticatedClientAction: 'RedirectToLoginPage'
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          clientId: uiUserAuthClientId
+          openIdIssuer: '${environment().authentication.loginEndpoint}${tenantId}/v2.0'
+        }
+      }
+    }
+    login: {
+      tokenStore: {
+        enabled: true
+      }
     }
   }
 }

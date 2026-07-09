@@ -48,8 +48,10 @@ def test_required_app_settings_and_identities_are_declared() -> None:
         "AGENT_URL",
         "READY_URL",
         "APIM_SCOPE",
+        "REQUIRE_USER_AUTH",
     ):
         assert setting in apps
+    assert "RedirectToLoginPage" in apps
     all_bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
     assert all_bicep.count("type: 'SystemAssigned'") == 3
     search_identity_script = read("infra/enable-search-identity.sh")

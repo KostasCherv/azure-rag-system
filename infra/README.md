@@ -9,8 +9,19 @@ This deployment creates two Azure Container Apps environments: a public environm
 - An Azure Container Registry or another registry that the Container Apps environments can pull from. Public image references work directly; private registries require registry identity configuration, which this template intentionally does not infer.
 - Existing Azure OpenAI, Azure AI Search, and Storage resources. Their names, resource groups, endpoints, deployments, index, container, and storage resource ID are parameters. The deployment operator also needs permission to update the Search identity.
 - Two Entra application/API definitions created outside Bicep: the APIM-facing audience/scope used by the UI and the backend audience accepted by Container Apps auth. Microsoft Graph tenant objects are deliberately not created by this deployment.
+- A third Entra app registration for interactive end-user sign-in on the public UI Container App. This is separate from the APIM-facing app used by the UI managed identity.
 
 The UI uses its system-assigned identity through `DefaultAzureCredential`. Configure the APIM API permission/application relationship in Entra so that this identity can obtain a token for `APIM_SCOPE`. Supply the expected client application ID as `uiClientId`; the policy also pins the deployed UI service principal object ID (`oid`). Configure the APIM managed identity to obtain a token for `backendAudience`. Container Apps auth pins the APIM principal object ID.
+
+## End-user sign-in app registration
+
+Create a web app registration for human users of the public UI. Do not create a client secret.
+
+1. Add a redirect URI of `https://<ui-fqdn>/.auth/login/aad/callback`, where `<ui-fqdn>` is the deployed UI Container App hostname from the `uiUrl` output.
+2. Add a federated identity credential on that app registration for the UI Container App's system-assigned managed identity. Use the UI app's Entra object ID (`uiPrincipalId` output) as the subject and `api://AzureADTokenExchange` as the audience so Easy Auth can authenticate without a secret.
+3. Pass the app registration's application (client) ID as `uiUserAuthClientId` in the parameter file.
+
+The UI Container App enables Easy Auth with `RedirectToLoginPage`, Azure AD as the identity provider, and token store enabled. The UI container sets `REQUIRE_USER_AUTH=true`, and the Next.js server rejects `/api/copilotkit` requests that do not include the `x-ms-client-principal` header injected by Easy Auth.
 
 ## Build and push images
 
