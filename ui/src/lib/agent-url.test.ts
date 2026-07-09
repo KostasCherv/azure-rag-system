@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getAgentUrl, getReadyUrl } from "./agent-url";
+import { getAgentUrl, getBackendBaseUrl, getReadyUrl } from "./agent-url";
 
 describe("getAgentUrl", () => {
   const originalUrl = process.env.AGENT_URL;
@@ -41,5 +41,10 @@ describe("getAgentUrl", () => {
     process.env.READY_URL = "https://status.example.test/ready/";
     expect(getReadyUrl()).toBe("https://status.example.test/ready");
     delete process.env.READY_URL;
+  });
+
+  it("derives backend base URL by stripping terminal /agui", () => {
+    process.env.AGENT_URL = "https://example.test/gateway/agui";
+    expect(getBackendBaseUrl()).toBe("https://example.test/gateway");
   });
 });

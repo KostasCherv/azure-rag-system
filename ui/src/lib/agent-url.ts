@@ -11,6 +11,15 @@ export function getAgentUrl(): string {
   return url.toString().replace(/\/$/, "");
 }
 
+export function getBackendBaseUrl(): string {
+  const agent = new URL(getAgentUrl());
+  if (!agent.pathname.endsWith("/agui")) {
+    throw new Error("AGENT_URL must have terminal /agui to derive backend base URL");
+  }
+  agent.pathname = agent.pathname.slice(0, -5) || "/";
+  return agent.toString().replace(/\/$/, "");
+}
+
 export function getReadyUrl(): string {
   const override = process.env.READY_URL;
   if (override) return validateHttpUrl(override, "READY_URL");

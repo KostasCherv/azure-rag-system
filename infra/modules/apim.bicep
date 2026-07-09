@@ -34,6 +34,30 @@ resource ready 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   properties: { displayName: 'Readiness', method: 'GET', urlTemplate: '/ready' }
 }
 
+resource corpusList 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-list'
+  properties: { displayName: 'Corpus list', method: 'GET', urlTemplate: '/corpus/documents' }
+}
+
+resource corpusUpload 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-upload'
+  properties: { displayName: 'Corpus upload', method: 'POST', urlTemplate: '/corpus/documents' }
+}
+
+resource corpusRun 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-run'
+  properties: { displayName: 'Corpus indexer run', method: 'POST', urlTemplate: '/corpus/indexer/run' }
+}
+
+resource corpusStatus 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-status'
+  properties: { displayName: 'Corpus indexer status', method: 'GET', urlTemplate: '/corpus/indexer' }
+}
+
 var rawPolicy = loadTextContent('../policies/api-policy.xml')
 var tenantPolicy = replace(rawPolicy, '{{tenantId}}', tenantId)
 var audiencePolicy = replace(tenantPolicy, '{{apimAudience}}', apimAudience)
@@ -49,5 +73,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [agui, ready]
+  dependsOn: [agui, ready, corpusList, corpusUpload, corpusRun, corpusStatus]
 }
