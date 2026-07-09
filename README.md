@@ -4,6 +4,23 @@ An Azure-native retrieval-augmented generation (RAG) application that uses Azure
 
 Azure service-to-service access uses managed identities and least-privilege RBAC. The production topology uses API Management Standard v2 to validate Microsoft Entra tokens from the UI identity, enforce per-caller limits, and replace inbound credentials with its managed identity before reaching the private API.
 
+## Demo
+
+<video src="assets/readme/demo-overview.webm" autoplay loop muted playsinline width="100%"></video>
+
+*Chat with grounded answers and citations, plus corpus upload, delete, and indexer controls.*
+
+| Chat (ready) | Question + sources | Grounded answer | Corpus browser |
+|---|---|---|---|
+| ![Chat ready screen](assets/readme/01-chat-ready.png) | ![Question with retrieved sources](assets/readme/02-chat-question.png) | ![Answer with citations](assets/readme/03-chat-answer.png) | ![Corpus management](assets/readme/04-corpus.png) |
+
+Regenerate with Playwright while the API and UI are running:
+
+```bash
+npm install --no-save playwright && npx playwright install chromium
+node scripts/capture_readme_demo.mjs
+```
+
 ## Architecture
 
 ```mermaid
