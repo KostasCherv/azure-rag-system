@@ -379,6 +379,7 @@ def create_rag_agent(config: AppConfig, rag: RagService) -> Agent:
             instructions=AGENT_INSTRUCTIONS,
             client=create_chat_client(config, rag),
             tools=[create_search_docs_tool(rag)],
+            default_options=config.agent_default_options(),
             middleware=[
                 LangSmithRunTelemetryMiddleware(config.azure_openai_chat_deployment),
                 ModelTelemetryMiddleware(config.azure_openai_chat_deployment),

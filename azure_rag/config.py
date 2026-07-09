@@ -24,6 +24,7 @@ class AppConfig:
     embedding_dimensions: int = 1536
     search_api_version: str = "2026-05-01-preview"
     search_min_score: float = 1.5
+    answer_max_tokens: int = 5000
 
     @classmethod
     def from_env(cls, load_dotenv_file: bool = True) -> "AppConfig":
@@ -61,7 +62,23 @@ class AppConfig:
                 "APPLICATIONINSIGHTS_CONNECTION_STRING"
             ),
             search_min_score=float(os.getenv("AZURE_SEARCH_MIN_SCORE", "2.0")),
+            answer_max_tokens=int(os.getenv("RAG_ANSWER_MAX_TOKENS", "5000")),
         )
+
+    @property
+    def chat_uses_completion_token_limit(self) -> bool:
+        name = self.azure_openai_chat_deployment.casefold()
+        return name.startswith(("gpt-5", "o1", "o3", "o4"))
+
+    def agent_default_options(self) -> dict[str, int]:
+        # Agent Framework's OpenAIChatClient uses the Responses API and maps
+        # max_tokens -> max_output_tokens internally.
+        return {"max_tokens": self.answer_max_tokens}
+
+    def readiness_probe_options(self) -> dict[str, int | float]:
+        if self.chat_uses_completion_token_limit:
+            return {"max_completion_tokens": 16}
+        return {"max_tokens": 1, "temperature": 0}
 
     @property
     def openai_base_url(self) -> str:

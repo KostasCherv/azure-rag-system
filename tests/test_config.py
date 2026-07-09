@@ -46,6 +46,7 @@ def test_config_loads_keyless_values_and_normalizes_endpoints(monkeypatch):
     assert config.semantic_configuration == "rag-index-semantic"
     assert config.data_source_name == "rag-index-blob-datasource"
     assert config.search_min_score == 2.0
+    assert config.answer_max_tokens == 5000
     assert not hasattr(config, "azure_openai_api_key")
     assert not hasattr(config, "search_api_key")
     assert not hasattr(config, "storage_connection_string")
@@ -53,7 +54,9 @@ def test_config_loads_keyless_values_and_normalizes_endpoints(monkeypatch):
 
 def test_config_loads_optional_application_insights_connection_string(monkeypatch):
     _set_required_env(monkeypatch)
-    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=abc")
+    monkeypatch.setenv(
+        "APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=abc"
+    )
 
     config = AppConfig.from_env(load_dotenv_file=False)
 
@@ -67,3 +70,23 @@ def test_config_allows_overriding_search_min_score(monkeypatch):
     config = AppConfig.from_env(load_dotenv_file=False)
 
     assert config.search_min_score == 2.75
+
+
+def test_config_allows_overriding_answer_max_tokens(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("RAG_ANSWER_MAX_TOKENS", "1800")
+
+    config = AppConfig.from_env(load_dotenv_file=False)
+
+    assert config.answer_max_tokens == 1800
+
+
+def test_config_maps_answer_limit_for_gpt5_deployments(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-5-mini")
+
+    config = AppConfig.from_env(load_dotenv_file=False)
+
+    assert config.chat_uses_completion_token_limit is True
+    assert config.agent_default_options() == {"max_tokens": 5000}
+    assert config.readiness_probe_options() == {"max_completion_tokens": 16}

@@ -172,11 +172,20 @@ def test_final_answer_text_ignores_tool_context_messages():
         messages=[
             SimpleNamespace(
                 role="assistant",
-                contents=[SimpleNamespace(type="text", text="[1] product-manual.pdf score=2.4\nraw context")],
+                contents=[
+                    SimpleNamespace(
+                        type="text",
+                        text="[1] product-manual.pdf score=2.4\nraw context",
+                    )
+                ],
             ),
             SimpleNamespace(
                 role="assistant",
-                contents=[SimpleNamespace(type="text", text="The product supports app control [1].")],
+                contents=[
+                    SimpleNamespace(
+                        type="text", text="The product supports app control [1]."
+                    )
+                ],
             ),
         ],
     )
@@ -323,7 +332,9 @@ def test_langsmith_run_middleware_groups_streamed_user_query(monkeypatch):
         "question": "What does the manual say about encryption?",
         "message_count": 1,
     }
-    assert ended[1] == {"outputs": {"answer": "The manual says data is encrypted at rest."}}
+    assert ended[1] == {
+        "outputs": {"answer": "The manual says data is encrypted at rest."}
+    }
 
 
 def test_create_rag_agent_registers_search_tool(monkeypatch):
@@ -353,3 +364,32 @@ def test_create_rag_agent_registers_search_tool(monkeypatch):
     assert "Do not collect citations only at the end" in agent.instructions
     assert callable(captured["tools"][0])
     assert captured["tools"][0].__name__ == "search_docs"
+
+
+def test_create_rag_agent_uses_completion_token_limit_for_gpt5(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        "azure_rag.agent.create_chat_client",
+        lambda config, rag: object(),
+    )
+
+    def fake_agent(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(**kwargs)
+
+    monkeypatch.setattr("azure_rag.agent.Agent", fake_agent)
+
+    gpt5_config = AppConfig(
+        azure_openai_endpoint="https://example.openai.azure.com/openai/v1",
+        azure_openai_chat_deployment="gpt-5-mini",
+        azure_openai_embedding_deployment="embedding",
+        search_endpoint="https://example.search.windows.net",
+        search_index="rag-index",
+        storage_account_url="https://storage.blob.core.windows.net",
+        storage_container="docs",
+        storage_resource_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
+    )
+    create_rag_agent(gpt5_config, SimpleNamespace(credential=object()))
+
+    assert captured["default_options"] == {"max_tokens": 5000}

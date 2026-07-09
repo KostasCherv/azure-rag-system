@@ -8,7 +8,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("CorpusPanel", () => {
   it("lists documents and shows indexer status", async () => {
     vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify([{ name: "guide.md", size: 1200, last_modified: "2026-01-01T00:00:00Z" }])))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ name: "guide.md", size: 5000, last_modified: "2026-01-01T00:00:00Z" }])))
       .mockResolvedValueOnce(new Response(JSON.stringify({ status: "success", started_at: null, ended_at: "2026-01-01T00:00:00Z", error: null })));
     render(<CorpusPanel />);
     expect(screen.getByText("Loading documents...")).toBeTruthy();

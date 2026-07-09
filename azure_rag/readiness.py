@@ -128,11 +128,13 @@ def probe_search(config: AppConfig, credential: TokenCredential, session: Any) -
 def probe_openai(
     config: AppConfig, client: Any, *, timeout_seconds: float = 5
 ) -> DependencyResult:
+    request: dict[str, Any] = {
+        "model": config.azure_openai_chat_deployment,
+        "messages": [{"role": "user", "content": "Reply OK."}],
+        **config.readiness_probe_options(),
+    }
     client.with_options(timeout=timeout_seconds, max_retries=0).chat.completions.create(
-        model=config.azure_openai_chat_deployment,
-        messages=[{"role": "user", "content": "Reply OK."}],
-        max_tokens=1,
-        temperature=0,
+        **request
     )
     return DependencyResult(status="available")
 
