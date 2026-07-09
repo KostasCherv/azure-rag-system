@@ -5,9 +5,9 @@ import { SearchDocsSources } from "./citations";
 
 export function CitationToolRenderer() {
   useDefaultRenderTool({
-    render: ({ name, status, result }) => {
+    render: ({ name, status, result, toolCallId }) => {
       if (name !== "search_docs" || status !== "complete") return <></>;
-      return <SearchDocsSources result={result} />;
+      return <SearchDocsSources result={result} toolCallId={toolCallId} />;
     },
   });
   return null;

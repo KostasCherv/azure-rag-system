@@ -124,6 +124,53 @@ button, textarea { font: inherit; }
   color: #1f2d3d;
 }
 
+.citation-panel-title {
+  flex: 1 1 auto;
+}
+
+.citation-latency-badge {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e8f3fc;
+  color: #0f5c9c;
+  font: 11px/1.2 var(--font-geist-mono), monospace;
+  font-weight: 600;
+}
+
+.citation-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35em;
+  margin: 0 1px;
+  padding: 0 0.35em;
+  border: 1px solid #c8d9ea;
+  border-radius: 4px;
+  background: #edf5fc;
+  color: #0f5c9c;
+  font: 0.78em/1.2 var(--font-geist-mono), monospace;
+  font-weight: 700;
+  vertical-align: super;
+  cursor: pointer;
+}
+
+.citation-marker:hover,
+.citation-marker:focus-visible {
+  background: #d9ebfa;
+  outline: 2px solid #8ec5f3;
+  outline-offset: 1px;
+}
+
+.citation-highlight {
+  animation: citation-flash 1.5s ease-out;
+}
+
+@keyframes citation-flash {
+  0% { background: #fff4cc; box-shadow: 0 0 0 2px #f5d76e; }
+  100% { background: var(--surface); box-shadow: none; }
+}
+
 .citation-list {
   display: grid;
   gap: 8px;

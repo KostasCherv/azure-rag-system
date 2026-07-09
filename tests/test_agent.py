@@ -89,8 +89,28 @@ def test_format_search_results_numbers_chunks():
             "chunk": "Data is encrypted at rest.",
         }
     ]
+    assert "score" not in payload["citations"][0]
     assert "product-manual.pdf" not in payload["context"]
     assert "score=2.4" not in text
+
+
+def test_format_search_results_includes_retrieval_ms():
+    text = format_search_results(
+        [
+            RetrievedChunk(
+                title="product-manual.pdf",
+                chunk="Encrypted at rest.",
+                source_path="product-manual.pdf",
+                score=2.5,
+            )
+        ],
+        retrieval_ms=320,
+    )
+
+    payload = json.loads(text)
+    assert payload["retrieval_ms"] == 320
+    assert isinstance(payload["retrieval_ms"], int)
+    assert "score" not in text
 
 
 def test_format_search_results_empty_message():
@@ -118,6 +138,9 @@ def test_search_docs_tool_uses_rag_retrieve():
     assert "[1]" in result
     assert "product-manual.pdf" not in payload["context"]
     assert "Encrypted at rest." in result
+    assert isinstance(payload["retrieval_ms"], int)
+    assert payload["retrieval_ms"] >= 0
+    assert "score" not in payload["citations"][0]
 
 
 def test_final_answer_text_ignores_tool_context_messages():
