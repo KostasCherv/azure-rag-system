@@ -269,14 +269,15 @@ class LangSmithRunTelemetryMiddleware(AgentMiddleware):
             raise
 
 
-def format_search_results(chunks: list[Any]) -> str:
+def format_search_results(chunks: list[Any], *, retrieval_ms: int | None = None) -> str:
     if not chunks:
-        return json.dumps(
-            {
-                "context": "No relevant documents found above the configured score threshold.",
-                "citations": [],
-            }
-        )
+        payload: dict[str, Any] = {
+            "context": "No relevant documents found above the configured score threshold.",
+            "citations": [],
+        }
+        if retrieval_ms is not None:
+            payload["retrieval_ms"] = retrieval_ms
+        return json.dumps(payload)
     lines: list[str] = []
     citations: list[dict[str, Any]] = []
     for index, chunk in enumerate(chunks, start=1):
@@ -289,7 +290,10 @@ def format_search_results(chunks: list[Any]) -> str:
                 "chunk": content,
             }
         )
-    return json.dumps({"context": "\n\n".join(lines), "citations": citations})
+    payload = {"context": "\n\n".join(lines), "citations": citations}
+    if retrieval_ms is not None:
+        payload["retrieval_ms"] = retrieval_ms
+    return json.dumps(payload)
 
 
 def create_search_docs_tool(rag: RagService):
@@ -322,8 +326,10 @@ def create_search_docs_tool(rag: RagService):
                     return result
                 if seen_queries is not None:
                     seen_queries.add(query_key)
+                retrieval_started = perf_counter()
                 chunks = rag.retrieve(question, top=top)
-                result = format_search_results(chunks)
+                retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
+                result = format_search_results(chunks, retrieval_ms=retrieval_ms)
                 span.set_attribute("rag.retrieval.result_count", len(chunks))
                 span.set_attribute("rag.tool.output", result)
                 if run is not None:

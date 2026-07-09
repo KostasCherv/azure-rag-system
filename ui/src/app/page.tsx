@@ -1,6 +1,5 @@
-import { CopilotChat } from "@copilotkit/react-core/v2";
 import { Bot, Database, Search } from "lucide-react";
-import { CitationToolRenderer } from "./citation-tool-renderer";
+import { Chat } from "./chat";
 import { StatusGate } from "./status-gate";
 
 export default function Home() {
@@ -23,17 +22,7 @@ export default function Home() {
       </header>
 
       <StatusGate>
-        <CitationToolRenderer />
-        <CopilotChat
-          agentId="default"
-          welcomeScreen
-          labels={{
-            modalHeaderTitle: "RAG assistant",
-            welcomeMessageText: "Ask a question about the indexed documents.",
-            chatInputPlaceholder: "Ask the indexed knowledge base...",
-            chatDisclaimerText: "Answers are generated from Azure AI Search results.",
-          }}
-        />
+        <Chat />
       </StatusGate>
     </main>
   );
