@@ -21,7 +21,10 @@ type Dependencies = {
 export function createPostHandler(deps: Dependencies) {
   return async (request: NextRequest) => {
     const token = await deps.getToken();
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
     const runtime = new CopilotRuntime({
       agents: {
         default: deps.makeAgent(deps.getUrl(), headers),

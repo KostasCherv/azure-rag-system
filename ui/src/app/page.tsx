@@ -27,7 +27,7 @@ export default function Home() {
           welcomeScreen
           labels={{
             modalHeaderTitle: "RAG assistant",
-            welcomeMessageText: "Ask a question about the indexed Contoso documents.",
+            welcomeMessageText: "Ask a question about the indexed documents.",
             chatInputPlaceholder: "Ask the indexed knowledge base...",
             chatDisclaimerText: "Answers are generated from Azure AI Search results.",
           }}
