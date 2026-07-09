@@ -412,7 +412,7 @@ The unit tests mock external calls. A live Azure deployment, RBAC-propagation wa
 - The index schema is specialized for text and Markdown; there is no layout-aware PDF, image, table, or OCR processing.
 - Retrieval has no tenant, user, ACL, or metadata filters.
 - Chat requests are synchronous inside the FastAPI process; the AG-UI endpoint wraps the completed answer in streaming protocol events.
-- Conversation history is not persisted across sessions; within a chat thread, prior user/assistant turns are included in each AG-UI generation request.
+- Each turn is classified with Azure OpenAI as knowledge-base, meta/capability, or memory before retrieval; only knowledge-base turns call Azure AI Search. Classification failures fall back to knowledge-base retrieval.
 - The liveness endpoint is process-only; `/ready` performs cached downstream readiness probes.
 - APIM rate-limits and quotas `/query` and `/agui`; application-level retry policy, circuit breaker, response cache, evaluation harness, and telemetry remain outstanding.
 - The project uses the preview Azure AI Search API version configured in `AppConfig`; preview contracts can change.

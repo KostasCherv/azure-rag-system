@@ -1,6 +1,6 @@
 from azure_rag.auth import AZURE_SEARCH_SCOPE
 from azure_rag.config import AppConfig
-from azure_rag.rag import RagService, RetrievedChunk, build_messages
+from azure_rag.rag import RagService, RetrievedChunk, build_messages, parse_intent_label
 
 
 def config():
@@ -13,6 +13,7 @@ def config():
         storage_account_url="https://storage.blob.core.windows.net",
         storage_container="docs",
         storage_resource_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
+        search_min_score=2.0,
     )
 
 
@@ -191,12 +192,14 @@ def test_build_messages_include_conversation_history_before_question():
 
 
 def test_rag_answer_passes_history_to_chat_completion():
-    class RecordingCompletions:
-        def __init__(self):
-            self.kwargs = None
+    class QueuedCompletions:
+        def __init__(self, contents):
+            self.contents = list(contents)
+            self.calls = []
 
         def create(self, **kwargs):
-            self.kwargs = kwargs
+            self.calls.append(kwargs)
+            content = self.contents.pop(0)
             return type(
                 "Completion",
                 (),
@@ -205,7 +208,7 @@ def test_rag_answer_passes_history_to_chat_completion():
                         type(
                             "Choice",
                             (),
-                            {"message": type("Message", (), {"content": "Your name is Kostas."})()},
+                            {"message": type("Message", (), {"content": content})()},
                         )()
                     ]
                 },
@@ -213,7 +216,11 @@ def test_rag_answer_passes_history_to_chat_completion():
 
     class RecordingOpenAI:
         def __init__(self):
-            self.chat = type("Chat", (), {"completions": RecordingCompletions()})()
+            self.chat = type(
+                "Chat",
+                (),
+                {"completions": QueuedCompletions(["memory", "Your name is Kostas."])},
+            )()
 
         def close(self):
             pass
@@ -235,9 +242,12 @@ def test_rag_answer_passes_history_to_chat_completion():
     )
 
     assert result["answer"] == "Your name is Kostas."
-    sent = openai_client.chat.completions.kwargs["messages"]
-    assert sent[1]["content"] == "Hi my name is kostas"
-    assert "whats my name" in sent[-1]["content"]
+    assert len(openai_client.chat.completions.calls) == 2
+    classify_prompt = openai_client.chat.completions.calls[0]["messages"][-1]["content"]
+    assert "whats my name" in classify_prompt
+    answer_messages = openai_client.chat.completions.calls[1]["messages"]
+    assert answer_messages[1]["content"] == "Hi my name is kostas"
+    assert "whats my name" in answer_messages[-1]["content"]
 
 
 def test_retrieve_filters_out_low_scoring_chunks():
@@ -272,8 +282,155 @@ def test_retrieve_filters_out_low_scoring_chunks():
         def post(self, *_args, **_kwargs):
             return FilterResponse()
 
-    service = RagService(config(), credential=FakeCredential(), openai_client=FakeOpenAIClient(), session=FilterSession())
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=FilterSession(),
+    )
     chunks = service.retrieve("security")
 
     assert len(chunks) == 1
     assert chunks[0].source_path == "high.md"
+
+
+def test_parse_intent_label_normalizes_model_output():
+    assert parse_intent_label("meta") == "meta"
+    assert parse_intent_label('{"intent":"memory"}') == "memory"
+    assert parse_intent_label("Intent: KB\n") == "kb"
+    assert parse_intent_label("something else") == "kb"
+
+
+def test_answer_meta_skips_search_and_avoids_empty_context_prompt():
+    class QueuedCompletions:
+        def __init__(self, contents):
+            self.contents = list(contents)
+            self.calls = []
+
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            content = self.contents.pop(0)
+            return type(
+                "Completion",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {"message": type("Message", (), {"content": content})()},
+                        )()
+                    ]
+                },
+            )()
+
+    class RecordingOpenAI:
+        def __init__(self):
+            self.chat = type(
+                "Chat",
+                (),
+                {
+                    "completions": QueuedCompletions(
+                        [
+                            "meta",
+                            "I can answer questions about Contoso support, product, and security docs.",
+                        ]
+                    )
+                },
+            )()
+
+        def close(self):
+            pass
+
+    class CountingSession:
+        def __init__(self):
+            self.calls = 0
+
+        def post(self, *_args, **_kwargs):
+            self.calls += 1
+            raise AssertionError("meta turns must not call Azure Search")
+
+    session = CountingSession()
+    openai_client = RecordingOpenAI()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=openai_client,
+        session=session,
+    )
+
+    result = service.answer("how can you help me")
+
+    assert session.calls == 0
+    assert result["sources"] == []
+    assert "Contoso" in result["answer"]
+    answer_messages = openai_client.chat.completions.calls[1]["messages"]
+    assert "Context:\n\n" not in answer_messages[-1]["content"]
+    assert "how can you help me" in answer_messages[-1]["content"]
+
+
+def test_answer_kb_still_retrieves_sources():
+    class QueuedCompletions:
+        def __init__(self, contents):
+            self.contents = list(contents)
+
+        def create(self, **kwargs):
+            content = self.contents.pop(0)
+            return type(
+                "Completion",
+                (),
+                {
+                    "choices": [
+                        type(
+                            "Choice",
+                            (),
+                            {"message": type("Message", (), {"content": content})()},
+                        )()
+                    ]
+                },
+            )()
+
+    class RecordingOpenAI:
+        def __init__(self):
+            self.chat = type(
+                "Chat",
+                (),
+                {"completions": QueuedCompletions(["kb", "Encrypted at rest. [1]"])},
+            )()
+
+        def close(self):
+            pass
+
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=RecordingOpenAI(),
+        session=FakeSession(),
+    )
+
+    result = service.answer("What is Contoso's security overview?")
+
+    assert result["sources"]
+    assert result["sources"][0]["source_path"] == "doc.md"
+
+
+def test_classify_intent_uses_llm_and_falls_back_to_kb_on_error():
+    class FailingCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("classifier unavailable")
+
+    class FailingOpenAI:
+        def __init__(self):
+            self.chat = type("Chat", (), {"completions": FailingCompletions()})()
+
+        def close(self):
+            pass
+
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FailingOpenAI(),
+        session=FakeSession(),
+    )
+
+    assert service.classify_intent("how can you help me") == "kb"
