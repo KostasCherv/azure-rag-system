@@ -51,6 +51,24 @@ resource existingSearch 'Microsoft.Search/searchServices@2025-05-01' existing = 
   scope: resourceGroup(searchResourceGroupName)
 }
 
+resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2025-07-01' = {
+  name: '${namePrefix}-logs'
+  location: location
+  properties: {
+    retentionInDays: 30
+  }
+}
+
+resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
+  name: '${namePrefix}-appi'
+  location: location
+  kind: 'web'
+  properties: {
+    Application_Type: 'web'
+    WorkspaceResourceId: logAnalytics.id
+  }
+}
+
 module apimService 'modules/apim-service.bicep' = {
   name: 'apim-service'
   params: {
@@ -84,6 +102,7 @@ module apps 'modules/container-apps.bicep' = {
     storageAccountUrl: storageAccountUrl
     storageContainer: storageContainer
     storageResourceId: storageResourceId
+    applicationInsightsConnectionString: applicationInsights.properties.ConnectionString
   }
 }
 

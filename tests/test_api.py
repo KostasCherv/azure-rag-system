@@ -71,3 +71,30 @@ def test_app_registers_agui_endpoint_with_agent_framework(monkeypatch):
         assert captured["path"] == "/agui"
         assert captured["agent"] == {"name": "fake-agent"}
         assert client.post("/agui").status_code == 200
+
+
+def test_app_lifespan_configures_telemetry_when_connection_string_exists(monkeypatch):
+    captured = {}
+    app_config = AppConfig(
+        azure_openai_endpoint="https://example.openai.azure.com",
+        azure_openai_chat_deployment="chat",
+        azure_openai_embedding_deployment="embedding",
+        search_endpoint="https://example.search.windows.net",
+        search_index="rag-index",
+        storage_account_url="https://storage.blob.core.windows.net",
+        storage_container="docs",
+        storage_resource_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
+        applicationinsights_connection_string="InstrumentationKey=abc",
+    )
+
+    def fake_configure(connection_string):
+        captured["connection_string"] = connection_string
+        return True
+
+    monkeypatch.setattr("azure_rag.api.configure_telemetry", fake_configure)
+    app = create_app(config=app_config, rag_service=FakeRagService(), register_agui=False)
+
+    with TestClient(app) as client:
+        assert client.get("/health").status_code == 200
+
+    assert captured["connection_string"] == "InstrumentationKey=abc"

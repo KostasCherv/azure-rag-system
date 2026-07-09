@@ -51,6 +51,15 @@ def test_config_loads_keyless_values_and_normalizes_endpoints(monkeypatch):
     assert not hasattr(config, "storage_connection_string")
 
 
+def test_config_loads_optional_application_insights_connection_string(monkeypatch):
+    _set_required_env(monkeypatch)
+    monkeypatch.setenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "InstrumentationKey=abc")
+
+    config = AppConfig.from_env(load_dotenv_file=False)
+
+    assert config.applicationinsights_connection_string == "InstrumentationKey=abc"
+
+
 def test_config_allows_overriding_search_min_score(monkeypatch):
     _set_required_env(monkeypatch)
     monkeypatch.setenv("AZURE_SEARCH_MIN_SCORE", "2.75")

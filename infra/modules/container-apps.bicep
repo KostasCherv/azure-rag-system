@@ -17,6 +17,7 @@ param searchIndex string
 param storageAccountUrl string
 param storageContainer string
 param storageResourceId string
+param applicationInsightsConnectionString string
 
 resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${namePrefix}-api-env'
@@ -72,6 +73,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: storageAccountUrl }
             { name: 'AZURE_STORAGE_CONTAINER', value: storageContainer }
             { name: 'AZURE_STORAGE_RESOURCE_ID', value: storageResourceId }
+            { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsightsConnectionString }
           ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
           probes: [

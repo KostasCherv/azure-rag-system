@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from time import perf_counter
 from typing import Any
 
 from agent_framework_ag_ui import add_agent_framework_fastapi_endpoint
@@ -11,6 +12,7 @@ from .agent import create_rag_agent
 from .config import AppConfig
 from .rag import RagService
 from .readiness import ReadinessService, probe_openai, probe_search
+from .telemetry import configure_telemetry, tracer
 
 
 def create_app(
@@ -24,6 +26,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         resolved_config = config if config is not None else AppConfig.from_env()
+        configure_telemetry(resolved_config.applicationinsights_connection_string)
         owns_rag = rag_service is None
         resolved_rag = rag_service if rag_service is not None else RagService(resolved_config)
         owns_readiness = readiness_service is None
@@ -52,6 +55,22 @@ def create_app(
                     resolved_rag.close()
 
     application = FastAPI(title="Azure AI Search RAG Demo", lifespan=lifespan)
+
+    @application.middleware("http")
+    async def trace_request(request: Request, call_next):
+        started = perf_counter()
+        with tracer.start_as_current_span("rag.request") as span:
+            span.set_attribute("http.request.method", request.method)
+            span.set_attribute("url.path", request.url.path)
+            try:
+                response = await call_next(request)
+                span.set_attribute("http.response.status_code", response.status_code)
+                return response
+            except Exception as error:
+                span.record_exception(error)
+                raise
+            finally:
+                span.set_attribute("rag.request.duration_ms", (perf_counter() - started) * 1000)
 
     @application.get("/health")
     def health() -> dict[str, str]:

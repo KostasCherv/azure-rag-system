@@ -44,6 +44,7 @@ def test_required_app_settings_and_identities_are_declared() -> None:
         "AZURE_STORAGE_ACCOUNT_URL",
         "AZURE_STORAGE_CONTAINER",
         "AZURE_STORAGE_RESOURCE_ID",
+        "APPLICATIONINSIGHTS_CONNECTION_STRING",
         "AGENT_URL",
         "READY_URL",
         "APIM_SCOPE",
@@ -104,6 +105,16 @@ def test_templates_have_no_secret_or_api_key_parameters() -> None:
     bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
     forbidden = ("param clientSecret", "param apiKey", "listKeys(", "secretRef:", "value: *")
     assert not any(value.lower() in bicep.lower() for value in forbidden)
+
+
+def test_application_insights_is_provisioned_and_wired_to_api() -> None:
+    main = read("infra/main.bicep")
+    apps = read("infra/modules/container-apps.bicep")
+    assert "Microsoft.OperationalInsights/workspaces" in main
+    assert "Microsoft.Insights/components" in main
+    assert "Application_Type: 'web'" in main
+    assert "applicationInsightsConnectionString" in main
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING" in apps
 
 
 def test_docs_explain_runtime_and_setup_search_management_permissions() -> None:

@@ -64,6 +64,35 @@ class FakeSession:
         return FakeResponse()
 
 
+class CapturingSpan:
+    def __init__(self):
+        self.attributes = {}
+        self.exceptions = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def set_attribute(self, key, value):
+        self.attributes[key] = value
+
+    def record_exception(self, error):
+        self.exceptions.append(error)
+
+
+class CapturingTracer:
+    def __init__(self):
+        self.spans = []
+
+    def start_as_current_span(self, name):
+        span = CapturingSpan()
+        span.name = name
+        self.spans.append(span)
+        return span
+
+
 def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     credential = FakeCredential()
     session = FakeSession()
@@ -207,3 +236,25 @@ def test_retrieve_filters_out_low_scoring_chunks():
     assert len(chunks) == 1
     assert chunks[0].source_path == "high.md"
 
+
+def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
+    tracer = CapturingTracer()
+    monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=FakeSession(),
+    )
+
+    service.retrieve("security", top=3)
+
+    span = tracer.spans[0]
+    assert span.name == "rag.retrieve"
+    assert span.attributes["rag.question"] == "security"
+    assert span.attributes["azure.search.index"] == "rag-index"
+    assert span.attributes["rag.retrieval.top"] == 3
+    assert span.attributes["rag.retrieval.result_count"] == 1
+    assert "doc.md" in span.attributes["rag.retrieval.context"]
+    assert "2.5" in span.attributes["rag.retrieval.context"]
+    assert span.attributes["rag.retrieval.duration_ms"] >= 0

@@ -20,6 +20,7 @@ class AppConfig:
     storage_account_url: str
     storage_container: str
     storage_resource_id: str
+    applicationinsights_connection_string: str | None = None
     embedding_dimensions: int = 1536
     search_api_version: str = "2026-05-01-preview"
     search_min_score: float = 1.5
@@ -56,6 +57,9 @@ class AppConfig:
             storage_account_url=required["AZURE_STORAGE_ACCOUNT_URL"].rstrip("/"),
             storage_container=required["AZURE_STORAGE_CONTAINER"],
             storage_resource_id=required["AZURE_STORAGE_RESOURCE_ID"],
+            applicationinsights_connection_string=os.getenv(
+                "APPLICATIONINSIGHTS_CONNECTION_STRING"
+            ),
             search_min_score=float(os.getenv("AZURE_SEARCH_MIN_SCORE", "2.0")),
         )
 
