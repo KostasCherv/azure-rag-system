@@ -21,3 +21,4 @@ ui/.next
 ui/.env.local
 .worktrees/
 ui/.env.local
+ui/tsconfig.tsbuildinfo
