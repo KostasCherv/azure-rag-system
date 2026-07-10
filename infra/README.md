@@ -1,14 +1,39 @@
 # Secure Azure deployment
 
-This deployment creates two Azure Container Apps environments: a public environment for the Next.js UI and a VNet-injected internal environment for FastAPI. API Management Standard v2 uses outbound VNet integration and private DNS to reach the internal API. The API ingress is reachable through the internal environment load balancer but has no public path. APIM validates the UI's Entra token, applies shared caller limits to `/agui`, and replaces the inbound credential with its managed-identity token for the backend audience. `/ready` requires authentication but is not charged against the expensive-query quota; `/health` is only used inside the Container Apps environment.
+## Greenfield bootstrap
+
+For an empty subscription, start with the subscription-scope bootstrap template. It creates the Azure prerequisites that `main.bicep` intentionally treats as existing dependencies:
+
+- deployment resource group
+- Azure Container Registry
+- Azure Storage account and Blob container
+- Azure AI Search service with system-assigned identity
+- Azure OpenAI account plus chat and embedding model deployments
+- optional setup-operator RBAC for running `scripts/setup_azure_rag.py`
+- optional setup-operator RBAC for Search, Blob, and Azure OpenAI setup operations
+
+Edit `infra/parameters/bootstrap-dev.bicepparam`, especially `resourceGroupName`, `namePrefix`, model names/versions if needed, and `setupPrincipalId` if the current user or automation identity should run the setup script. Then preview and deploy:
+
+```bash
+./infra/bootstrap.sh dev switzerlandnorth --what-if
+./infra/bootstrap.sh dev switzerlandnorth
+```
+
+The bootstrap outputs the ACR login server, ACR name, OpenAI endpoint, Search endpoint, Storage URL, Storage resource ID, and deployment names. Copy those values into `infra/parameters/dev.bicepparam` before deploying `main.bicep`, including `containerRegistryLoginServer`, `containerRegistryName`, and `containerRegistryResourceGroupName`. When those registry parameters are present, the runtime template grants the API and UI Container App identities `AcrPull` and configures image pulls through managed identity.
+
+The bootstrap does not create Microsoft Entra application registrations because those are tenant objects. Use `./infra/setup-entra-apps.sh dev <display-name-prefix>` before runtime deployment, then `./infra/configure-ui-auth.sh dev <deployment-resource-group>` after runtime deployment. The second script uses the deployment outputs to add the UI redirect URI, federated credential, and managed-identity app role assignments.
+
+The production deployment creates two Azure Container Apps environments: a public environment for the Next.js UI and a VNet-injected internal environment for FastAPI. API Management Standard v2 uses outbound VNet integration and private DNS to reach the internal API. The API ingress is reachable through the internal environment load balancer but has no public path. APIM validates the UI's Entra token, applies shared caller limits to `/agui`, and replaces the inbound credential with its managed-identity token for the backend audience. `/ready` requires authentication but is not charged against the expensive-query quota; `/health` is only used inside the Container Apps environment.
+
+For constrained development subscriptions, set `useSingleContainerAppsEnvironment=true` to deploy API and UI into one public Container Apps environment. The direct API FQDN exists in that mode, but Container Apps auth still pins accepted callers to APIM's managed identity.
 
 ## Prerequisites
 
 - An Azure subscription, deployment resource group, and permission to create role assignments on the existing Azure OpenAI, AI Search, and Storage resources.
 - Azure CLI with a current Bicep CLI (`az bicep upgrade`).
-- An Azure Container Registry or another registry that the Container Apps environments can pull from. Public image references work directly; private registries require registry identity configuration, which this template intentionally does not infer.
+- An Azure Container Registry or another registry that the Container Apps environments can pull from. Public image references work directly. For private ACR image references, set `containerRegistryLoginServer`, `containerRegistryName`, and `containerRegistryResourceGroupName` so the template can configure managed-identity pulls.
 - Existing Azure OpenAI, Azure AI Search, and Storage resources. Their names, resource groups, endpoints, deployments, index, container, and storage resource ID are parameters. The deployment operator also needs permission to update the Search identity.
-- Two Entra application/API definitions created outside Bicep: the APIM-facing audience/scope used by the UI and the backend audience accepted by Container Apps auth. Microsoft Graph tenant objects are deliberately not created by this deployment.
+- Two Entra application/API definitions created by `setup-entra-apps.sh` or manually: the APIM-facing audience/scope used by the UI and the backend audience accepted by Container Apps auth.
 - A third Entra app registration for interactive end-user sign-in on the public UI Container App. This is separate from the APIM-facing app used by the UI managed identity.
 
 The UI uses its system-assigned identity through `DefaultAzureCredential`. Configure the APIM API permission/application relationship in Entra so that this identity can obtain a token for `APIM_SCOPE`. Supply the expected client application ID as `uiClientId`; the policy also pins the deployed UI service principal object ID (`oid`). Configure the APIM managed identity to obtain a token for `backendAudience`. Container Apps auth pins the APIM principal object ID.
@@ -22,6 +47,8 @@ Create a web app registration for human users of the public UI. Do not create a 
 3. Pass the app registration's application (client) ID as `uiUserAuthClientId` in the parameter file.
 
 The UI Container App enables Easy Auth with `RedirectToLoginPage`, Azure AD as the identity provider, and token store enabled. The UI container sets `REQUIRE_USER_AUTH=true`, and the Next.js server rejects `/api/copilotkit` requests that do not include the `x-ms-client-principal` header injected by Easy Auth.
+
+The `configure-ui-auth.sh` script performs these post-deploy updates automatically when the signed-in identity has the required Microsoft Graph permissions.
 
 ## Build and push images
 
@@ -39,10 +66,16 @@ No credentials or `.env` files are copied into either image. Both containers run
 
 ## Validate and deploy
 
-Edit every `replace-*`/zero UUID placeholder in `infra/parameters/dev.bicepparam` or `prod.bicepparam`, then run:
+Copy `infra/parameters/dev.bicepparam` to `infra/parameters/dev.local.bicepparam` (gitignored) and fill in every `replace-*`/zero UUID placeholder there — the scripts prefer `*.local.bicepparam` when present, so real tenant, subscription, and app IDs stay out of the repository. Then run:
 
 ```bash
 az bicep build --file infra/main.bicep
+az deployment group what-if \
+  --resource-group DEPLOYMENT_RESOURCE_GROUP \
+  --template-file infra/main.bicep \
+  --parameters infra/parameters/dev.bicepparam \
+  searchResourceGroupName=SEARCH_RESOURCE_GROUP \
+  searchServiceName=SEARCH_SERVICE_NAME
 pytest tests/test_infra_static.py -q
 ./infra/deploy.sh DEPLOYMENT_RESOURCE_GROUP dev SEARCH_RESOURCE_GROUP SEARCH_SERVICE_NAME
 ```
@@ -62,6 +95,8 @@ The Search resource group and service name passed to `deploy.sh` are authoritati
 ## Network and DNS notes
 
 The API environment uses a dedicated delegated `/23` subnet. APIM Standard v2 uses a separate delegated `/24` subnet for outbound VNet integration. The template creates an Azure Private DNS zone named after the internal Container Apps environment's default domain, links it to the VNet, and maps `*` to the environment static IP. APIM therefore resolves the backend FQDN privately. The UI stays public in a separate Container Apps environment. Adjust CIDRs only to non-overlapping ranges with the same or larger subnet sizes, and connect custom/on-premises DNS forwarders to Azure DNS if they resolve this VNet.
+
+When `useSingleContainerAppsEnvironment=true`, the internal API environment and private DNS zone are skipped. APIM routes to the authenticated API app over its public FQDN.
 
 The predeploy PATCH enables the existing Search service's system identity without mirroring or replacing any other Search properties. Search receives only Cognitive Services OpenAI User and Storage Blob Data Reader. The API receives Cognitive Services OpenAI User, Search Index Data Reader, Storage Blob Data Contributor, and Search Service Contributor. The last role is required because runtime readiness reads `GET /indexers/{name}/status`, which is a Search service management operation rather than an index-document read.
 
