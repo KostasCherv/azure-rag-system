@@ -1,0 +1,18 @@
+using '../bootstrap.bicep'
+
+param location = 'switzerlandnorth'
+param resourceGroupName = 'replace-rag-bootstrap-rg'
+param namePrefix = 'replacerag'
+param storageContainer = 'sample-docs'
+param searchIndex = 'rag-live-test-index'
+param chatDeploymentName = 'rag-chat'
+param embeddingDeploymentName = 'rag-embedding'
+param chatModelName = 'gpt-5.1'
+param chatModelVersion = '2025-11-13'
+param chatDeploymentSkuName = 'GlobalStandard'
+param embeddingModelName = 'text-embedding-3-small'
+param embeddingModelVersion = '1'
+param embeddingDeploymentSkuName = 'Standard'
+param embeddingDeploymentCapacity = 200
+param setupPrincipalId = ''
+param setupPrincipalType = 'User'

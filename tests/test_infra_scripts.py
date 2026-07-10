@@ -92,5 +92,6 @@ def test_deploy_overrides_bicep_search_target_with_predeploy_target(tmp_path: Pa
     )
     commands = log.read_text().splitlines()
     deployment = next(command for command in commands if command.startswith("deployment group create"))
+    assert "--name azure-rag-dev" in deployment
     assert "searchResourceGroupName=canonical-search-rg" in deployment
     assert "searchServiceName=canonical-search" in deployment

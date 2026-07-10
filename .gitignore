@@ -9,8 +9,12 @@ wheels/
 # Virtual environments
 .venv
 .env
-docs
+docs/superpowers/
 /node_modules
+
+# Local deployment values (real tenant/app IDs, resource names) and compiled ARM output
+infra/parameters/*.local.bicepparam
+infra/main.json
 
 ui/node_modules
 ui/.next
