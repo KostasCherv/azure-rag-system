@@ -16,4 +16,4 @@ RUN chown -R app:app /app
 
 USER app
 EXPOSE 8000
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "exec uvicorn azure_rag.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
