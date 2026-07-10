@@ -57,11 +57,40 @@ describe("status route", () => {
   ])("calls the derived or overridden readiness URL", async (readyUrl, agentUrl, expected) => {
     process.env.AGENT_URL = agentUrl;
     if (readyUrl) process.env.READY_URL = readyUrl; else delete process.env.READY_URL;
-    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "ready", search: { indexer: { status: "success" } } })));
+    const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ status: "ready", search: { indexer: { status: "success" } } })));
     await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: getReadyUrl })();
     expect(fetcher.mock.calls[0][0]).toBe(expected);
     delete process.env.AGENT_URL;
     delete process.env.READY_URL;
+  });
+
+  it("rejects unauthenticated requests before touching the token or backend when user auth is required", async () => {
+    process.env.REQUIRE_USER_AUTH = "true";
+    const getToken = vi.fn(async () => "secret");
+    const fetcher = vi.fn(async () => new Response("{}"));
+    const response = await createStatusHandler({ getToken, fetcher, getUrl: () => "https://example.test/ready" })(
+      new Request("https://ui.test/api/status"),
+    );
+    expect(response.status).toBe(401);
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    delete process.env.REQUIRE_USER_AUTH;
+  });
+
+  it("serves authenticated requests when user auth is required", async () => {
+    process.env.REQUIRE_USER_AUTH = "true";
+    const principal = Buffer.from(JSON.stringify({
+      claims: [
+        { typ: "name", val: "Ada Lovelace" },
+        { typ: "http://schemas.microsoft.com/identity/claims/objectidentifier", val: "oid-123" },
+      ],
+    })).toString("base64");
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "ready", search: { status: "available", indexer: { status: "success", ended_at: "2026-01-01T00:00:00Z" } }, openai: { status: "available" } }), { status: 200 }));
+    const response = await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: () => "https://example.test/ready" })(
+      new Request("https://ui.test/api/status", { headers: { "x-ms-client-principal": principal } }),
+    );
+    expect(response.status).toBe(200);
+    delete process.env.REQUIRE_USER_AUTH;
   });
 
   it("calls readiness without Authorization when APIM token is unavailable", async () => {
