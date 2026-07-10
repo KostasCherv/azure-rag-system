@@ -49,7 +49,18 @@ resource corpusUpload 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
 resource corpusDelete 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: api
   name: 'corpus-delete'
-  properties: { displayName: 'Corpus delete', method: 'DELETE', urlTemplate: '/corpus/documents/{name}' }
+  properties: {
+    displayName: 'Corpus delete'
+    method: 'DELETE'
+    urlTemplate: '/corpus/documents/{name}'
+    templateParameters: [
+      {
+        name: 'name'
+        type: 'string'
+        required: true
+      }
+    ]
+  }
 }
 
 resource corpusRun 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
@@ -67,7 +78,8 @@ resource corpusStatus 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
 var rawPolicy = loadTextContent('../policies/api-policy.xml')
 var tenantPolicy = replace(rawPolicy, '{{tenantId}}', tenantId)
 var audiencePolicy = replace(tenantPolicy, '{{apimAudience}}', apimAudience)
-var uiPrincipalPolicy = replace(audiencePolicy, '{{uiPrincipalId}}', uiPrincipalId)
+var apimClientIdPolicy = replace(audiencePolicy, '{{apimClientId}}', replace(apimAudience, 'api://', ''))
+var uiPrincipalPolicy = replace(apimClientIdPolicy, '{{uiPrincipalId}}', uiPrincipalId)
 var uiClientPolicy = replace(uiPrincipalPolicy, '{{uiClientId}}', uiClientId)
 var backendFqdnPolicy = replace(uiClientPolicy, '{{backendFqdn}}', backendFqdn)
 var renderedPolicy = replace(backendFqdnPolicy, '{{backendAudience}}', backendAudience)

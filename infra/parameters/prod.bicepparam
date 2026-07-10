@@ -1,10 +1,15 @@
 using '../main.bicep'
 
 param location = 'switzerlandnorth'
+param publicContainerAppsLocation = 'swedencentral'
 param namePrefix = 'replace-rag-prod'
 param tenantId = '00000000-0000-0000-0000-000000000000'
 param apiImage = 'replace.azurecr.io/azure-rag-api:2026.07.01'
 param uiImage = 'replace.azurecr.io/azure-rag-ui:2026.07.01'
+param useSingleContainerAppsEnvironment = false
+param containerRegistryLoginServer = ''
+param containerRegistryName = ''
+param containerRegistryResourceGroupName = ''
 param backendAudience = 'api://00000000-0000-0000-0000-000000000001'
 param backendClientId = '00000000-0000-0000-0000-000000000001'
 param apimAudience = 'api://00000000-0000-0000-0000-000000000002'

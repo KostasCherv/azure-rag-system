@@ -1,6 +1,7 @@
 targetScope = 'resourceGroup'
 
 param location string = resourceGroup().location
+param publicContainerAppsLocation string = 'swedencentral'
 @minLength(3)
 @maxLength(28)
 @description('Lowercase letters, digits, and internal hyphens only; must start with a letter and end with a letter or digit.')
@@ -8,6 +9,10 @@ param namePrefix string
 param tenantId string
 param apiImage string
 param uiImage string
+param useSingleContainerAppsEnvironment bool = false
+param containerRegistryLoginServer string = ''
+param containerRegistryName string = ''
+param containerRegistryResourceGroupName string = ''
 param backendAudience string
 param backendClientId string
 param apimAudience string
@@ -70,6 +75,11 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+resource acrPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (!empty(containerRegistryName)) {
+  name: '${namePrefix}-acr-pull'
+  location: location
+}
+
 module apimService 'modules/apim-service.bicep' = {
   name: 'apim-service'
   params: {
@@ -81,14 +91,27 @@ module apimService 'modules/apim-service.bicep' = {
   }
 }
 
+module acrRbac 'modules/rbac-acr.bicep' = if (!empty(containerRegistryName)) {
+  name: 'rbac-acr'
+  scope: resourceGroup(empty(containerRegistryResourceGroupName) ? resourceGroup().name : containerRegistryResourceGroupName)
+  params: {
+    principalIds: [acrPullIdentity.?properties.principalId ?? '']
+    resourceName: containerRegistryName
+  }
+}
+
 module apps 'modules/container-apps.bicep' = {
   name: 'container-apps'
   params: {
     location: location
+    publicLocation: publicContainerAppsLocation
     namePrefix: namePrefix
     internalSubnetId: network.outputs.containerAppsSubnetId
     apiImage: apiImage
     uiImage: uiImage
+    useSingleEnvironment: useSingleContainerAppsEnvironment
+    registryServer: containerRegistryLoginServer
+    registryIdentityId: !empty(containerRegistryName) ? acrPullIdentity.id : ''
     backendAudience: backendAudience
     backendClientId: backendClientId
     tenantId: tenantId
@@ -106,9 +129,12 @@ module apps 'modules/container-apps.bicep' = {
     applicationInsightsConnectionString: applicationInsights.properties.ConnectionString
     uiUserAuthClientId: uiUserAuthClientId
   }
+  dependsOn: [
+    acrRbac
+  ]
 }
 
-module privateDns 'modules/private-dns.bicep' = {
+module privateDns 'modules/private-dns.bicep' = if (!useSingleContainerAppsEnvironment) {
   name: 'private-dns'
   params: {
     namePrefix: namePrefix
@@ -162,3 +188,6 @@ module storageRbac 'modules/rbac-storage.bicep' = {
 output uiUrl string = 'https://${apps.outputs.uiFqdn}'
 output apimGatewayUrl string = apimService.outputs.gatewayUrl
 output apiPrivateFqdn string = apps.outputs.apiFqdn
+output uiPrincipalId string = apps.outputs.uiPrincipalId
+output apiPrincipalId string = apps.outputs.apiPrincipalId
+output apimPrincipalId string = apimService.outputs.principalId

@@ -14,6 +14,14 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   }
 }
 
+resource apimNsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
+  name: '${namePrefix}-apim-nsg'
+  location: location
+  properties: {
+    securityRules: []
+  }
+}
+
 resource containerAppsSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
   parent: vnet
   name: 'container-apps-internal'
@@ -35,6 +43,9 @@ resource apimSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
   name: 'apim-outbound'
   properties: {
     addressPrefix: apimSubnetPrefix
+    networkSecurityGroup: {
+      id: apimNsg.id
+    }
     delegations: [
       {
         name: 'Microsoft.Web.serverFarms'

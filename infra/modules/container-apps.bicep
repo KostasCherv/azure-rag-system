@@ -1,8 +1,12 @@
 param location string
+param publicLocation string = location
 param namePrefix string
 param internalSubnetId string
 param apiImage string
 param uiImage string
+param useSingleEnvironment bool = false
+param registryServer string = ''
+param registryIdentityId string = ''
 param backendAudience string
 param backendClientId string
 param tenantId string
@@ -20,7 +24,7 @@ param storageResourceId string
 param applicationInsightsConnectionString string
 param uiUserAuthClientId string
 
-resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
+resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = if (!useSingleEnvironment) {
   name: '${namePrefix}-api-env'
   location: location
   properties: {
@@ -34,7 +38,7 @@ resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 
 resource publicEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${namePrefix}-ui-env'
-  location: location
+  location: publicLocation
   properties: {
     vnetConfiguration: {
       internal: false
@@ -45,12 +49,25 @@ resource publicEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = {
 
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-api'
-  location: location
-  identity: { type: 'SystemAssigned' }
+  location: useSingleEnvironment ? publicLocation : location
+  identity: empty(registryIdentityId) ? {
+    type: 'SystemAssigned'
+  } : {
+    type: 'SystemAssigned, UserAssigned'
+    userAssignedIdentities: {
+      '${registryIdentityId}': {}
+    }
+  }
   properties: {
-    managedEnvironmentId: internalEnvironment.id
+    managedEnvironmentId: useSingleEnvironment ? publicEnvironment.id : internalEnvironment.id
     configuration: {
       activeRevisionsMode: 'Single'
+      registries: empty(registryServer) ? [] : [
+        {
+          server: registryServer
+          identity: registryIdentityId
+        }
+      ]
       ingress: {
         // The environment load balancer is internal, so this exposes the app only to the VNet.
         external: true
@@ -119,12 +136,25 @@ resource apiAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
 
 resource ui 'Microsoft.App/containerApps@2024-03-01' = {
   name: '${namePrefix}-ui'
-  location: location
-  identity: { type: 'SystemAssigned' }
+  location: publicLocation
+  identity: empty(registryIdentityId) ? {
+    type: 'SystemAssigned'
+  } : {
+    type: 'SystemAssigned, UserAssigned'
+    userAssignedIdentities: {
+      '${registryIdentityId}': {}
+    }
+  }
   properties: {
     managedEnvironmentId: publicEnvironment.id
     configuration: {
       activeRevisionsMode: 'Single'
+      registries: empty(registryServer) ? [] : [
+        {
+          server: registryServer
+          identity: registryIdentityId
+        }
+      ]
       ingress: {
         external: true
         targetPort: 3000
@@ -169,11 +199,6 @@ resource uiAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
         }
       }
     }
-    login: {
-      tokenStore: {
-        enabled: true
-      }
-    }
   }
 }
 
@@ -181,5 +206,5 @@ output apiPrincipalId string = api.identity.principalId
 output uiPrincipalId string = ui.identity.principalId
 output apiFqdn string = api.properties.configuration.ingress.fqdn
 output uiFqdn string = ui.properties.configuration.ingress.fqdn
-output internalEnvironmentDomain string = internalEnvironment.properties.defaultDomain
-output internalEnvironmentStaticIp string = internalEnvironment.properties.staticIp
+output internalEnvironmentDomain string = internalEnvironment.?properties.defaultDomain ?? ''
+output internalEnvironmentStaticIp string = internalEnvironment.?properties.staticIp ?? ''

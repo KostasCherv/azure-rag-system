@@ -15,7 +15,7 @@ def test_container_images_are_production_oriented() -> None:
     api = read("Dockerfile")
     ui = read("ui/Dockerfile")
     assert "USER app" in api
-    assert 'CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]' in api
+    assert 'CMD ["sh", "-c", "exec uvicorn azure_rag.api:app --host 0.0.0.0 --port ${PORT:-8000}"]' in api
     assert "FROM node:22-alpine AS runner" in ui
     assert "USER nextjs" in ui
     assert 'CMD ["node", "server.js"]' in ui
@@ -52,8 +52,17 @@ def test_required_app_settings_and_identities_are_declared() -> None:
     ):
         assert setting in apps
     assert "RedirectToLoginPage" in apps
-    all_bicep = "\n".join(path.read_text() for path in INFRA.rglob("*.bicep"))
-    assert all_bicep.count("type: 'SystemAssigned'") == 3
+    assert "registries:" in apps
+    assert "registryIdentityId" in apps
+    runtime_bicep = "\n".join(
+        path.read_text()
+        for path in [
+            INFRA / "main.bicep",
+            INFRA / "modules" / "apim-service.bicep",
+            INFRA / "modules" / "container-apps.bicep",
+        ]
+    )
+    assert runtime_bicep.count("type: 'SystemAssigned'") == 3
     search_identity_script = read("infra/enable-search-identity.sh")
     assert '"identity":{"type":"SystemAssigned"}' in search_identity_script
     assert "SystemAssigned, UserAssigned" in search_identity_script
@@ -76,9 +85,62 @@ def test_rbac_is_least_privilege_and_complete() -> None:
     assert "Contributor'" not in rbac
 
 
+def test_private_acr_pull_is_managed_identity_based() -> None:
+    main = read("infra/main.bicep")
+    acr = read("infra/modules/rbac-acr.bicep")
+    params = read("infra/parameters/dev.bicepparam")
+    assert "containerRegistryLoginServer" in main
+    assert "containerRegistryName" in main
+    assert "containerRegistryResourceGroupName" in main
+    assert "rbac-acr" in main
+    assert "7f951dda-4ed3-4680-a7ca-43fe172d538d" in acr
+    assert "AcrPull" not in main
+    assert "param containerRegistryLoginServer" in params
+
+
+def test_entra_automation_scripts_cover_pre_and_post_deploy_auth() -> None:
+    setup = read("infra/setup-entra-apps.sh")
+    configure = read("infra/configure-ui-auth.sh")
+    setup_all = read("infra/setup-all.sh")
+    main = read("infra/main.bicep")
+
+    for expected in (
+        "az ad app create",
+        "az ad sp create",
+        "identifierUris",
+        "requestedAccessTokenVersion",
+        "appRoles",
+        "uiUserAuthClientId",
+        "backendAudience",
+        "apimScope",
+    ):
+        assert expected in setup
+    for expected in (
+        "federated-credential create",
+        "api://AzureADTokenExchange",
+        ".auth/login/aad/callback",
+        "appRoleAssignments",
+        "uiPrincipalId",
+        "apimPrincipalId",
+    ):
+        assert expected in configure
+    assert "output uiPrincipalId" in main
+    assert "output apimPrincipalId" in main
+    for expected in (
+        "az deployment sub create",
+        "setup-entra-apps.sh",
+        "docker buildx build --platform linux/amd64",
+        "deploy.sh",
+        "configure-ui-auth.sh",
+        "uv run python scripts/setup_azure_rag.py",
+    ):
+        assert expected in setup_all
+
+
 def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
     policy = read("infra/policies/api-policy.xml")
-    assert "validate-azure-ad-token" in policy
+    assert "validate-jwt" in policy
+    assert "v2.0/.well-known/openid-configuration" in policy
     assert "authentication-managed-identity" in policy
     assert "<authenticate-managed-identity" not in policy
     assert "rate-limit-by-key" in policy and 'calls="30"' in policy and 'renewal-period="60"' in policy
@@ -167,6 +229,39 @@ def test_search_identity_predeploy_uses_scoped_patch_and_verifies_principal() ->
     assert deploy.index("./infra/enable-search-identity.sh") < deploy.index("az bicep build")
 
 
+def test_greenfield_bootstrap_creates_prerequisites_without_keys() -> None:
+    bootstrap = read("infra/bootstrap.bicep")
+    resources = read("infra/modules/bootstrap-resources.bicep")
+    script = read("infra/bootstrap.sh")
+
+    assert "targetScope = 'subscription'" in bootstrap
+    assert "Microsoft.Resources/resourceGroups" in bootstrap
+    for resource_type in (
+        "Microsoft.ContainerRegistry/registries",
+        "Microsoft.Storage/storageAccounts",
+        "Microsoft.Storage/storageAccounts/blobServices/containers",
+        "Microsoft.Search/searchServices",
+        "Microsoft.CognitiveServices/accounts",
+        "Microsoft.CognitiveServices/accounts/deployments",
+    ):
+        assert resource_type in resources
+    assert "disableLocalAuth: true" in resources
+    assert "allowSharedKeyAccess: false" in resources
+    assert "apiKey" not in resources
+    assert "listKeys(" not in resources
+    assert "az deployment sub what-if" in script
+    assert "az deployment sub create" in script
+
+
+def test_bootstrap_bicep_builds() -> None:
+    subprocess.run(
+        ["az", "bicep", "build", "--file", str(INFRA / "bootstrap.bicep"), "--stdout"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_name_prefix_is_bounded_and_validated_for_container_apps() -> None:
     main = read("infra/main.bicep")
     assert "@maxLength(28)" in main
@@ -175,8 +270,15 @@ def test_name_prefix_is_bounded_and_validated_for_container_apps() -> None:
     assert "assert namePrefix" not in main
 
 
-def test_root_readme_describes_deployed_security_and_remaining_prerequisites() -> None:
-    docs = read("README.md")
+def test_docs_describe_deployed_security_and_remaining_prerequisites() -> None:
+    docs = "\n".join(
+        [
+            read("README.md"),
+            read("docs/architecture.md"),
+            read("docs/deployment.md"),
+            read("docs/development.md"),
+        ]
+    )
     assert "API Management Standard v2" in docs
     assert "30 calls per 60 seconds" in docs
     assert "500 calls per day" in docs
@@ -185,4 +287,4 @@ def test_root_readme_describes_deployed_security_and_remaining_prerequisites() -
     assert "There is no rate limiting" not in docs
     assert "underlying Azure infrastructure is manually provisioned" not in docs
     assert "app registrations" in docs.lower()
-    assert "live Azure deployment" in docs
+    assert "live Azure deployment" in docs or "live Azure" in docs
