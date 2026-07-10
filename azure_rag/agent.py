@@ -361,10 +361,20 @@ def create_search_docs_tool(rag: RagService):
 
 
 def create_chat_client(config: AppConfig, rag: RagService) -> OpenAIChatClient:
+    auth = openai_token_provider(rag.credential)
+    if isinstance(auth, str):
+        return OpenAIChatClient(
+            model=config.azure_openai_chat_deployment,
+            azure_endpoint=config.openai_resource_url,
+            api_key=auth,
+        )
+    # AsyncAzureOpenAI rejects callable api_keys ("Unable to handle auth");
+    # credential is Agent Framework's supported Entra auth surface and
+    # accepts a callable token provider.
     return OpenAIChatClient(
         model=config.azure_openai_chat_deployment,
         azure_endpoint=config.openai_resource_url,
-        api_key=openai_token_provider(rag.credential),
+        credential=auth,
     )
 
 

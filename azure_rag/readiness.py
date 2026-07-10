@@ -128,13 +128,13 @@ def probe_search(config: AppConfig, credential: TokenCredential, session: Any) -
 def probe_openai(
     config: AppConfig, client: Any, *, timeout_seconds: float = 5
 ) -> DependencyResult:
-    request: dict[str, Any] = {
-        "model": config.azure_openai_chat_deployment,
-        "messages": [{"role": "user", "content": "Reply OK."}],
-        **config.readiness_probe_options(),
-    }
-    client.with_options(timeout=timeout_seconds, max_retries=0).chat.completions.create(
-        **request
+    configured = client.with_options(timeout=timeout_seconds, max_retries=0)
+    # max_completion_tokens works for every current model on the v1 endpoint;
+    # deployment names don't reveal the model family, so don't guess from them.
+    configured.chat.completions.create(
+        model=config.azure_openai_chat_deployment,
+        messages=[{"role": "user", "content": "Reply OK."}],
+        max_completion_tokens=16,
     )
     return DependencyResult(status="available")
 

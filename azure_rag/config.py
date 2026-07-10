@@ -20,6 +20,7 @@ class AppConfig:
     storage_account_url: str
     storage_container: str
     storage_resource_id: str
+    azure_openai_embedding_model: str | None = None
     applicationinsights_connection_string: str | None = None
     embedding_dimensions: int = 1536
     search_api_version: str = "2026-05-01-preview"
@@ -53,6 +54,10 @@ class AppConfig:
             azure_openai_embedding_deployment=required[
                 "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
             ],
+            azure_openai_embedding_model=os.getenv(
+                "AZURE_OPENAI_EMBEDDING_MODEL",
+                required["AZURE_OPENAI_EMBEDDING_DEPLOYMENT"],
+            ),
             search_endpoint=required["AZURE_SEARCH_ENDPOINT"].rstrip("/"),
             search_index=required["AZURE_SEARCH_INDEX"],
             storage_account_url=required["AZURE_STORAGE_ACCOUNT_URL"].rstrip("/"),
@@ -65,20 +70,10 @@ class AppConfig:
             answer_max_tokens=int(os.getenv("RAG_ANSWER_MAX_TOKENS", "5000")),
         )
 
-    @property
-    def chat_uses_completion_token_limit(self) -> bool:
-        name = self.azure_openai_chat_deployment.casefold()
-        return name.startswith(("gpt-5", "o1", "o3", "o4"))
-
     def agent_default_options(self) -> dict[str, int]:
         # Agent Framework's OpenAIChatClient uses the Responses API and maps
         # max_tokens -> max_output_tokens internally.
         return {"max_tokens": self.answer_max_tokens}
-
-    def readiness_probe_options(self) -> dict[str, int | float]:
-        if self.chat_uses_completion_token_limit:
-            return {"max_completion_tokens": 16}
-        return {"max_tokens": 1, "temperature": 0}
 
     @property
     def openai_base_url(self) -> str:

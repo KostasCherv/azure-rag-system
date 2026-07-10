@@ -380,7 +380,7 @@ def create_or_update_index(
                     "azureOpenAIParameters": {
                         "resourceUri": config.openai_resource_url,
                         "deploymentId": config.azure_openai_embedding_deployment,
-                        "modelName": config.azure_openai_embedding_deployment,
+                        "modelName": config.azure_openai_embedding_model or config.azure_openai_embedding_deployment,
                     },
                 }
             ],
@@ -439,7 +439,7 @@ def create_or_update_skillset(
                 "context": "/document/pages/*",
                 "resourceUri": config.openai_resource_url,
                 "deploymentId": config.azure_openai_embedding_deployment,
-                "modelName": config.azure_openai_embedding_deployment,
+                "modelName": config.azure_openai_embedding_model or config.azure_openai_embedding_deployment,
                 "dimensions": config.embedding_dimensions,
                 "inputs": [{"name": "text", "source": "/document/pages/*"}],
                 "outputs": [{"name": "embedding", "targetName": "chunk_vector"}],

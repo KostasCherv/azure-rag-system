@@ -87,6 +87,4 @@ def test_config_maps_answer_limit_for_gpt5_deployments(monkeypatch):
 
     config = AppConfig.from_env(load_dotenv_file=False)
 
-    assert config.chat_uses_completion_token_limit is True
     assert config.agent_default_options() == {"max_tokens": 5000}
-    assert config.readiness_probe_options() == {"max_completion_tokens": 16}

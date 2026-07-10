@@ -323,30 +323,6 @@ def test_openai_probe_is_minimal_and_deterministic():
     assert probe_openai(config(), Client(), timeout_seconds=4.75).status == "available"
     assert options == {"timeout": 4.75, "max_retries": 0}
     assert captured["model"] == "chat"
-    assert captured["max_tokens"] == 1
-    assert captured["temperature"] == 0
-
-
-def test_openai_probe_uses_completion_token_limit_for_gpt5():
-    captured = {}
-    class Completions:
-        def create(self, **kwargs): captured.update(kwargs)
-    configured = type("Configured", (), {"chat": type("Chat", (), {"completions": Completions()})()})()
-    class Client:
-        def with_options(self, **_kwargs):
-            return configured
-    gpt5_config = AppConfig(
-        azure_openai_endpoint="https://example.openai.azure.com/openai/v1",
-        azure_openai_chat_deployment="gpt-5-mini",
-        azure_openai_embedding_deployment="embedding",
-        search_endpoint="https://example.search.windows.net",
-        search_index="rag-index",
-        storage_account_url="https://storage.blob.core.windows.net",
-        storage_container="docs",
-        storage_resource_id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage",
-    )
-    assert probe_openai(gpt5_config, Client()).status == "available"
-    assert captured["model"] == "gpt-5-mini"
     assert captured["max_completion_tokens"] == 16
     assert "max_tokens" not in captured
     assert "temperature" not in captured

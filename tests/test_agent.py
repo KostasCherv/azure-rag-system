@@ -393,3 +393,32 @@ def test_create_rag_agent_uses_completion_token_limit_for_gpt5(monkeypatch):
     create_rag_agent(gpt5_config, SimpleNamespace(credential=object()))
 
     assert captured["default_options"] == {"max_tokens": 5000}
+
+
+def test_create_chat_client_uses_credential_for_entra_auth(monkeypatch):
+    captured = {}
+    monkeypatch.delenv("AZURE_OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "azure_rag.agent.OpenAIChatClient",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(**kwargs),
+    )
+    agent_module.create_chat_client(config(), SimpleNamespace(credential=object()))
+
+    assert callable(captured["credential"])
+    assert captured["model"] == "chat"
+    assert captured["azure_endpoint"] == "https://example.openai.azure.com"
+    assert "api_key" not in captured
+
+
+def test_create_chat_client_prefers_api_key_when_set(monkeypatch):
+    captured = {}
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "secret-key")
+    monkeypatch.setattr(
+        "azure_rag.agent.OpenAIChatClient",
+        lambda **kwargs: captured.update(kwargs) or SimpleNamespace(**kwargs),
+    )
+
+    agent_module.create_chat_client(config(), SimpleNamespace(credential=object()))
+
+    assert captured["api_key"] == "secret-key"
+    assert "credential" not in captured
