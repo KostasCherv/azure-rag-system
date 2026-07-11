@@ -17,6 +17,9 @@ current_user_id: ContextVar[str | None] = ContextVar("current_user_id", default=
 def validate_user_id(value: str | None) -> str | None:
     if not value or len(value) > MAX_USER_ID_LENGTH or not USER_ID_PATTERN.fullmatch(value):
         return None
+    if value.strip(".") == "":
+        # Dot-only ids would become "./" or "../" blob path segments.
+        return None
     return value
 
 

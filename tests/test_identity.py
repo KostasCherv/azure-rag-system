@@ -16,7 +16,7 @@ def test_validate_user_id_accepts_oids_and_local_ids():
     assert validate_user_id("local-development-user") == "local-development-user"
 
 
-@pytest.mark.parametrize("value", [None, "", "a" * 129, "user id", "user'id", "user/id"])
+@pytest.mark.parametrize("value", [None, "", "a" * 129, "user id", "user'id", "user/id", ".", ".."])
 def test_validate_user_id_rejects_unsafe_values(value):
     assert validate_user_id(value) is None
 
