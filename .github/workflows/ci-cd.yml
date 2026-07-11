@@ -215,12 +215,21 @@ jobs:
               apiImage="$API_IMAGE" \
               uiImage="$UI_IMAGE" \
             --no-pretty-print
+      # ponytail: az acr build is blocked on this subscription (TasksOperationsNotAllowed),
+      # so build on the runner and push instead.
+      - name: Log in to container registry
+        if: env.API_CHANGED == 'true' || env.UI_CHANGED == 'true'
+        run: az acr login --name "$ACR_NAME"
       - name: Publish API image
         if: env.API_CHANGED == 'true'
-        run: az acr build --registry "$ACR_NAME" --image "azure-rag-api:${GITHUB_SHA}" --file Dockerfile .
+        run: |
+          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}" --file Dockerfile .
+          docker push "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
       - name: Publish UI image
         if: env.UI_CHANGED == 'true'
-        run: az acr build --registry "$ACR_NAME" --image "azure-rag-ui:${GITHUB_SHA}" --file ui/Dockerfile ui
+        run: |
+          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}" --file ui/Dockerfile ui
+          docker push "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
       - name: Deploy and verify
         env:
           API_IMAGE: ${{ steps.images.outputs.api }}
