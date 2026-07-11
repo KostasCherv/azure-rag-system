@@ -20,7 +20,7 @@ jobs:
       deploy_ui: ${{ steps.filter.outputs.deploy_ui }}
       deploy_infra: ${{ steps.filter.outputs.deploy_infra }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - id: filter
@@ -43,6 +43,8 @@ jobs:
             case "$file" in
               azure_rag/*|main.py|Dockerfile|pyproject.toml|uv.lock)
                 api=true; deploy_api=true ;;
+              ui/*.test.ts|ui/*.test.tsx|ui/src/test/*|ui/vitest.config.ts)
+                ui=true ;;
               ui/*)
                 ui=true; deploy_ui=true ;;
               infra/*)
@@ -70,8 +72,8 @@ jobs:
     if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install dependencies
@@ -92,8 +94,8 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
@@ -111,8 +113,8 @@ jobs:
     if: needs.changes.outputs.infra == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install dependencies
@@ -173,7 +175,7 @@ jobs:
       UI_CHANGED: ${{ needs.changes.outputs.deploy_ui }}
       INFRA_CHANGED: ${{ needs.changes.outputs.deploy_infra }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Azure login
         uses: azure/login@v3
         with:
@@ -232,7 +234,7 @@ jobs:
             local app="$1"
             for _ in {1..30}; do
               if az containerapp revision list --resource-group "$RESOURCE_GROUP" --name "$app" \
-                --query "[?properties.active && properties.healthState == 'Healthy' && properties.provisioningState == 'Succeeded'] | length(@)" \
+                --query "[?properties.active && properties.healthState == 'Healthy' && properties.provisioningState == 'Provisioned'] | length(@)" \
                 --output tsv | grep -qx '[1-9][0-9]*'; then
                 return 0
               fi

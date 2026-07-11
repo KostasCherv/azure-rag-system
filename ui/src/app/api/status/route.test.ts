@@ -57,7 +57,7 @@ describe("status route", () => {
   ])("calls the derived or overridden readiness URL", async (readyUrl, agentUrl, expected) => {
     process.env.AGENT_URL = agentUrl;
     if (readyUrl) process.env.READY_URL = readyUrl; else delete process.env.READY_URL;
-    const fetcher = vi.fn(async (_url: RequestInfo | URL) => new Response(JSON.stringify({ status: "ready", search: { indexer: { status: "success" } } })));
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ status: "ready", search: { indexer: { status: "success" } } })));
     await createStatusHandler({ getToken: async () => "secret", fetcher, getUrl: getReadyUrl })();
     expect(fetcher.mock.calls[0][0]).toBe(expected);
     delete process.env.AGENT_URL;
