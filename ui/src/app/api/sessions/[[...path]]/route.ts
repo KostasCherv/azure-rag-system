@@ -2,14 +2,13 @@ import type { NextRequest } from "next/server";
 
 import { getBackendBaseUrl } from "@/lib/agent-url";
 import { getApimToken } from "@/lib/server-auth";
-import { getUserPrincipal, isUserAuthRequired } from "@/lib/user-auth";
+import { getUserId } from "@/lib/user-auth";
 
 type RouteContext = { params: Promise<{ path?: string[] }> };
 
 async function proxy(request: NextRequest, context: RouteContext) {
-  const principal = getUserPrincipal(request.headers);
-  if (isUserAuthRequired() && !principal) return new Response("Unauthorized", { status: 401 });
-  const userId = principal?.oid ?? "local-development-user";
+  const userId = getUserId(request.headers);
+  if (!userId) return new Response("Unauthorized", { status: 401 });
   try {
     const token = await getApimToken();
     const { path = [] } = await context.params;

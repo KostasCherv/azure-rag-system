@@ -1,24 +1,28 @@
 import { getApimToken } from "@/lib/server-auth";
 import { getBackendBaseUrl } from "@/lib/agent-url";
+import { getUserId } from "@/lib/user-auth";
 
 type Dependencies = {
   getToken: () => Promise<string | null>;
   getBaseUrl: () => string;
+  getUserId: (headers: Headers) => string | null;
   fetcher: typeof fetch;
 };
 
-function authHeaders(token: string | null): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+function authHeaders(token: string | null, userId: string): Record<string, string> {
+  const headers: Record<string, string> = { Accept: "application/json", "X-RAG-User-ID": userId };
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 
 export function createDocumentsGetHandler(deps: Dependencies) {
-  return async () => {
+  return async (request: Request) => {
+    const userId = deps.getUserId(request.headers);
+    if (!userId) return new Response("Unauthorized", { status: 401 });
     try {
       const token = await deps.getToken();
       const response = await deps.fetcher(`${deps.getBaseUrl()}/corpus/documents`, {
-        headers: authHeaders(token),
+        headers: authHeaders(token, userId),
         cache: "no-store",
       });
       const body = await response.text();
@@ -31,6 +35,8 @@ export function createDocumentsGetHandler(deps: Dependencies) {
 
 export function createDocumentsPostHandler(deps: Dependencies) {
   return async (request: Request) => {
+    const userId = deps.getUserId(request.headers);
+    if (!userId) return new Response("Unauthorized", { status: 401 });
     try {
       const token = await deps.getToken();
       const form = await request.formData();
@@ -40,7 +46,7 @@ export function createDocumentsPostHandler(deps: Dependencies) {
       }
       const outbound = new FormData();
       outbound.append("file", file, file.name);
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = { "X-RAG-User-ID": userId };
       if (token) headers.Authorization = `Bearer ${token}`;
       const response = await deps.fetcher(`${deps.getBaseUrl()}/corpus/documents`, {
         method: "POST",
@@ -55,5 +61,5 @@ export function createDocumentsPostHandler(deps: Dependencies) {
   };
 }
 
-export const GET = createDocumentsGetHandler({ getToken: getApimToken, getBaseUrl: getBackendBaseUrl, fetcher: fetch });
-export const POST = createDocumentsPostHandler({ getToken: getApimToken, getBaseUrl: getBackendBaseUrl, fetcher: fetch });
+export const GET = createDocumentsGetHandler({ getToken: getApimToken, getBaseUrl: getBackendBaseUrl, getUserId, fetcher: fetch });
+export const POST = createDocumentsPostHandler({ getToken: getApimToken, getBaseUrl: getBackendBaseUrl, getUserId, fetcher: fetch });
