@@ -107,7 +107,9 @@ resource sessionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/c
         indexingMode: 'consistent'
         automatic: true
         includedPaths: [{ path: '/userId/?' }, { path: '/updatedAt/?' }]
-        excludedPaths: [{ path: '/messages/*' }]
+        // Cosmos requires the root path in one of the sets; excluding it
+        // keeps everything else (including /messages) unindexed.
+        excludedPaths: [{ path: '/*' }]
       }
     }
   }
