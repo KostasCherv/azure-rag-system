@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from time import perf_counter
 from typing import Any
@@ -11,10 +12,13 @@ from fastapi.responses import JSONResponse
 from .agent import create_rag_agent
 from .config import AppConfig
 from .corpus import router as corpus_router
+from .identity import current_user_id, validate_user_id
 from .rag import RagService
 from .readiness import DependencyResult, ReadinessService, probe_openai, probe_search
 from .sessions import SessionStore, router as sessions_router
 from .telemetry import configure_telemetry, tracer
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -70,6 +74,13 @@ def create_app(
     @application.middleware("http")
     async def trace_request(request: Request, call_next):
         started = perf_counter()
+        app_config = getattr(request.app.state, "config", None)
+        local_fallback = app_config.session_local_user_id if app_config else None
+        forwarded_user = request.headers.get("x-rag-user-id") or local_fallback
+        resolved_user = validate_user_id(forwarded_user)
+        if forwarded_user and resolved_user is None:
+            logger.warning("Dropping invalid X-RAG-User-ID header; agent retrieval will fail closed")
+        user_token = current_user_id.set(resolved_user)
         with tracer.start_as_current_span("rag.request") as span:
             span.set_attribute("http.request.method", request.method)
             span.set_attribute("url.path", request.url.path)
@@ -82,6 +93,7 @@ def create_app(
                 raise
             finally:
                 span.set_attribute("rag.request.duration_ms", (perf_counter() - started) * 1000)
+                current_user_id.reset(user_token)
 
     @application.get("/health")
     def health() -> dict[str, str]:

@@ -25,6 +25,7 @@ def test_delete_index_documents_by_title_loops_until_no_hits(monkeypatch):
     def fake_request(cfg, method, path, *, credential, session, timeout=60, **kwargs):
         if method == "POST" and path.endswith("/docs/search"):
             calls["search"] += 1
+            assert kwargs["json"]["filter"] == "title eq 'guide.md' and user_id eq 'user-a'"
             if calls["search"] == 1:
                 return {"value": [{"document_id": "chunk-1"}, {"document_id": "chunk-2"}]}
             return {"value": []}
@@ -41,7 +42,9 @@ def test_delete_index_documents_by_title_loops_until_no_hits(monkeypatch):
 
     monkeypatch.setattr("azure_rag.search_pipeline._request", fake_request)
 
-    deleted = delete_index_documents_by_title(config(), "guide.md", credential=object(), session=object())
+    deleted = delete_index_documents_by_title(
+        config(), "guide.md", user_id="user-a", credential=object(), session=object()
+    )
     assert deleted == 2
     assert calls["search"] == 2
     assert calls["delete"] == 1

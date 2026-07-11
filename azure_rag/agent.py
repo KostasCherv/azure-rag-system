@@ -11,6 +11,7 @@ from pydantic import Field
 
 from .auth import openai_token_provider
 from .config import AppConfig
+from .identity import current_user_id
 from .rag import RagService, source_label
 from .telemetry import start_langsmith_run, tracer
 
@@ -342,8 +343,18 @@ def create_search_docs_tool(rag: RagService):
                     return result
                 if seen_queries is not None:
                     seen_queries.add(query_key)
+                user_id = current_user_id.get()
+                if user_id is None:
+                    # Fail closed: without a caller identity, never run an
+                    # unfiltered search that could leak private documents.
+                    result = format_search_results([])
+                    span.set_attribute("rag.retrieval.result_count", 0)
+                    span.set_attribute("rag.tool.output", result)
+                    if run is not None:
+                        run.end(outputs={"context": result, "result_count": 0})
+                    return result
                 retrieval_started = perf_counter()
-                chunks = rag.retrieve(question, top=top, source=source)
+                chunks = rag.retrieve(question, top=top, user_id=user_id, source=source)
                 retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
                 result = format_search_results(chunks, retrieval_ms=retrieval_ms)
                 span.set_attribute("rag.retrieval.result_count", len(chunks))

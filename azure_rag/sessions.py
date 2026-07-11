@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from .auth import default_credential
 from .config import AppConfig
+from .identity import resolve_user_id as _user_id
 from .telemetry import tracer
 
 logger = logging.getLogger(__name__)
@@ -163,14 +164,6 @@ class SessionStore:
             self.container.delete_item(str(session_id), partition_key=user_id)
         except CosmosResourceNotFoundError as exc:
             raise HTTPException(status_code=404, detail="session not found") from exc
-
-
-def _user_id(request: Request, forwarded: str | None) -> str:
-    config: AppConfig = request.app.state.config
-    value = forwarded or config.session_local_user_id
-    if not value or len(value) > 128 or not re.fullmatch(r"[A-Za-z0-9._:@-]+", value):
-        raise HTTPException(status_code=401, detail="user identity required")
-    return value
 
 
 def _store(request: Request) -> SessionStore:

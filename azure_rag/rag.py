@@ -13,6 +13,7 @@ from openai import OpenAI
 
 from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential, openai_token_provider
 from .config import AppConfig
+from .identity import validate_user_id
 from .telemetry import start_langsmith_run, tracer
 
 
@@ -79,8 +80,11 @@ class RagService:
         question: str,
         top: int = 5,
         *,
+        user_id: str,
         source: str | None = None,
     ) -> list[RetrievedChunk]:
+        if validate_user_id(user_id) is None:
+            raise ValueError("invalid user id")
         started = perf_counter()
         with tracer.start_as_current_span("rag.retrieve") as span:
             span.set_attribute("rag.question", question)
@@ -120,9 +124,13 @@ class RagService:
                         }
                     ],
                 }
+                # Unconditional isolation filter: the caller's own documents
+                # plus the shared corpus (user_id null). Never client-supplied.
+                user_filter = f"(user_id eq '{user_id}' or user_id eq null)"
                 if source:
                     escaped = source.replace("'", "''")
-                    body["filter"] = f"search.ismatch('{escaped}', 'title')"
+                    user_filter += f" and search.ismatch('{escaped}', 'title')"
+                body["filter"] = user_filter
                 response = self.session.post(
                     url,
                     headers={

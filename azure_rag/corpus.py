@@ -4,9 +4,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 
+from .identity import resolve_user_id
 from .readiness import IndexerResult, normalize_indexer, sanitize_error
 from .search_pipeline import (
     AzureSearchError,
@@ -48,10 +49,11 @@ def _indexer_payload(result: IndexerResult) -> dict[str, Any]:
 
 
 @router.get("/documents")
-def list_corpus_documents(request: Request) -> list[dict[str, Any]]:
+def list_corpus_documents(request: Request, x_rag_user_id: str | None = Header(None)) -> list[dict[str, Any]]:
     rag = request.app.state.rag
+    user_id = resolve_user_id(request, x_rag_user_id)
     try:
-        return list_documents(rag.config, credential=rag.credential, blob_service_client=None)
+        return list_documents(rag.config, user_id=user_id, credential=rag.credential, blob_service_client=None)
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -60,8 +62,11 @@ def list_corpus_documents(request: Request) -> list[dict[str, Any]]:
 
 
 @router.post("/documents")
-async def upload_corpus_document(request: Request, file: UploadFile = File(...)) -> dict[str, str]:
+async def upload_corpus_document(
+    request: Request, file: UploadFile = File(...), x_rag_user_id: str | None = Header(None)
+) -> dict[str, str]:
     rag = request.app.state.rag
+    user_id = resolve_user_id(request, x_rag_user_id)
     filename = sanitize_filename(file.filename or "")
     data = await file.read()
     if len(data) > MAX_UPLOAD_BYTES:
@@ -69,7 +74,7 @@ async def upload_corpus_document(request: Request, file: UploadFile = File(...))
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
     try:
-        uploaded = upload_document(rag.config, filename, data, credential=rag.credential)
+        uploaded = upload_document(rag.config, filename, data, user_id=user_id, credential=rag.credential)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -81,13 +86,15 @@ async def upload_corpus_document(request: Request, file: UploadFile = File(...))
 
 
 @router.delete("/documents/{name}")
-def delete_corpus_document(request: Request, name: str) -> dict[str, Any]:
+def delete_corpus_document(request: Request, name: str, x_rag_user_id: str | None = Header(None)) -> dict[str, Any]:
     rag = request.app.state.rag
+    user_id = resolve_user_id(request, x_rag_user_id)
     filename = sanitize_filename(name)
     try:
         return remove_corpus_document(
             rag.config,
             filename,
+            user_id=user_id,
             credential=rag.credential,
             session=rag.session,
             blob_service_client=None,

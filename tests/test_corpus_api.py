@@ -41,15 +41,22 @@ def test_sanitize_filename_accepts_safe_names_and_rejects_unsafe():
 
 
 def test_corpus_documents_list_and_upload(monkeypatch):
-    monkeypatch.setattr(
-        "azure_rag.corpus.list_documents",
-        lambda *args, **kwargs: [{"name": "guide.md", "size": 10, "last_modified": None}],
-    )
-    monkeypatch.setattr("azure_rag.corpus.upload_document", lambda *args, **kwargs: "guide.md")
+    seen_user_ids = []
+
+    def fake_list(*args, **kwargs):
+        seen_user_ids.append(kwargs["user_id"])
+        return [{"name": "guide.md", "size": 10, "last_modified": None}]
+
+    def fake_upload(*args, **kwargs):
+        seen_user_ids.append(kwargs["user_id"])
+        return "guide.md"
+
+    monkeypatch.setattr("azure_rag.corpus.list_documents", fake_list)
+    monkeypatch.setattr("azure_rag.corpus.upload_document", fake_upload)
 
     app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
     with TestClient(app) as client:
-        response = client.get("/corpus/documents")
+        response = client.get("/corpus/documents", headers={"X-RAG-User-ID": "user-a"})
         assert response.status_code == 200
         assert response.json() == [{"name": "guide.md", "size": 10, "last_modified": None}]
 
@@ -59,6 +66,25 @@ def test_corpus_documents_list_and_upload(monkeypatch):
         )
         assert upload.status_code == 200
         assert upload.json() == {"name": "guide.md"}
+    # header wins when present, local fallback otherwise
+    assert seen_user_ids == ["user-a", "local-development-user"]
+
+
+def test_corpus_documents_fail_closed_without_identity(monkeypatch):
+    monkeypatch.setattr("azure_rag.corpus.list_documents", lambda *args, **kwargs: [])
+    from dataclasses import replace
+
+    no_fallback = replace(config(), session_local_user_id=None)
+    rag = FakeRagService()
+    rag.config = no_fallback
+    app = create_app(config=no_fallback, rag_service=rag, register_agui=False)
+    with TestClient(app) as client:
+        assert client.get("/corpus/documents").status_code == 401
+        assert (
+            client.post("/corpus/documents", files={"file": ("g.md", b"x", "text/markdown")}).status_code == 401
+        )
+        assert client.delete("/corpus/documents/guide.md").status_code == 401
+        assert client.get("/corpus/documents", headers={"X-RAG-User-ID": "bad id!"}).status_code == 401
 
 
 def test_corpus_upload_rejects_large_files(monkeypatch):
