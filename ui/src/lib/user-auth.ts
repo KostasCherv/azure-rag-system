@@ -17,6 +17,14 @@ export function isUserAuthRequired(): boolean {
   return process.env.REQUIRE_USER_AUTH === "true";
 }
 
+// Returns the caller's user id for backend isolation, or null when user auth
+// is required and no principal is present (caller should respond 401).
+export function getUserId(headers: HeaderSource): string | null {
+  const principal = getUserPrincipal(headers);
+  if (isUserAuthRequired() && !principal) return null;
+  return principal?.oid ?? "local-development-user";
+}
+
 export function getUserPrincipal(headers: HeaderSource): UserPrincipal | null {
   const encoded = headers.get("x-ms-client-principal");
   if (!encoded) return null;
