@@ -13,7 +13,17 @@ from azure_rag.agent import (
     format_search_results,
 )
 from azure_rag.config import AppConfig
+from azure_rag.identity import current_user_id
 from azure_rag.rag import RetrievedChunk
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def user_context():
+    token = current_user_id.set("user-a")
+    yield
+    current_user_id.reset(token)
 
 
 def config():
@@ -119,9 +129,10 @@ def test_format_search_results_empty_message():
 
 def test_search_docs_tool_uses_rag_retrieve():
     class FakeRag:
-        def retrieve(self, question, top=5, *, source=None):
+        def retrieve(self, question, top=5, *, user_id, source=None):
             assert question == "security overview"
             assert top == 3
+            assert user_id == "user-a"
             assert source is None
             return [
                 RetrievedChunk(
@@ -146,9 +157,10 @@ def test_search_docs_tool_uses_rag_retrieve():
 
 def test_search_docs_tool_passes_source_to_retrieve():
     class FakeRag:
-        def retrieve(self, question, top=5, *, source=None):
+        def retrieve(self, question, top=5, *, user_id, source=None):
             assert question == "battery capacity"
             assert top == 5
+            assert user_id == "user-a"
             assert source == "Tesla Powerwall"
             return [
                 RetrievedChunk(
@@ -205,7 +217,7 @@ def test_search_docs_tool_records_question_and_returned_context(monkeypatch):
     monkeypatch.setattr("azure_rag.agent.start_langsmith_run", fake_start_langsmith_run)
 
     class FakeRag:
-        def retrieve(self, question, top=5, *, source=None):
+        def retrieve(self, question, top=5, *, user_id, source=None):
             return [
                 RetrievedChunk(
                     title="product-manual.pdf",
@@ -235,7 +247,7 @@ def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
         def __init__(self):
             self.calls = 0
 
-        def retrieve(self, _question, top=5, *, source=None):
+        def retrieve(self, _question, top=5, *, user_id, source=None):
             self.calls += 1
             return [
                 RetrievedChunk(
@@ -259,6 +271,22 @@ def test_search_docs_tool_blocks_duplicate_query_in_same_turn(monkeypatch):
     assert "Product details." in first
     assert "already performed" in second
     assert rag.calls == 1
+
+
+def test_search_docs_tool_fails_closed_without_user_identity(monkeypatch):
+    class ExplodingRag:
+        def retrieve(self, *args, **kwargs):
+            raise AssertionError("retrieve must not run without a user identity")
+
+    monkeypatch.setattr("azure_rag.agent.start_langsmith_run", lambda **_kwargs: None)
+    tool = create_search_docs_tool(ExplodingRag())
+    token = current_user_id.set(None)
+    try:
+        result = tool(question="anything")
+    finally:
+        current_user_id.reset(token)
+
+    assert "No relevant documents" in result
 
 
 def test_model_middleware_records_streamed_final_response(monkeypatch):

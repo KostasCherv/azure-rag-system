@@ -102,12 +102,14 @@ def get_indexer_status(
 def list_documents(
     config: AppConfig,
     *,
+    user_id: str,
     credential: TokenCredential | None = None,
     blob_service_client: Any | None = None,
 ) -> list[dict[str, Any]]:
     owns_blob_service = blob_service_client is None
     owns_credential = credential is None and owns_blob_service
     resolved_credential = credential
+    prefix = f"{user_id}/"
     try:
         if owns_blob_service:
             resolved_credential = credential if credential is not None else default_credential()
@@ -117,13 +119,13 @@ def list_documents(
             )
         container = blob_service_client.get_container_client(config.storage_container)
         documents: list[dict[str, Any]] = []
-        for blob in container.list_blobs():
+        for blob in container.list_blobs(name_starts_with=prefix):
             suffix = Path(blob.name).suffix.lower()
             if suffix not in SUPPORTED_SAMPLE_DOC_TYPES:
                 continue
             documents.append(
                 {
-                    "name": blob.name,
+                    "name": blob.name.removeprefix(prefix),
                     "size": blob.size,
                     "last_modified": blob.last_modified.isoformat() if blob.last_modified else None,
                 }
@@ -143,6 +145,7 @@ def upload_document(
     name: str,
     data: bytes,
     *,
+    user_id: str,
     credential: TokenCredential | None = None,
     blob_service_client: Any | None = None,
 ) -> str:
@@ -165,11 +168,14 @@ def upload_document(
             container.create_container()
         except Exception:
             pass
-        blob = container.get_blob_client(name)
+        # Per-user virtual folder; the userId metadata is projected into the
+        # search index's user_id field by the skillset.
+        blob = container.get_blob_client(f"{user_id}/{name}")
         blob.upload_blob(
             data,
             overwrite=True,
             content_settings=ContentSettings(content_type=SUPPORTED_SAMPLE_DOC_TYPES[suffix]),
+            metadata={"userId": user_id},
         )
         return name
     finally:
@@ -189,11 +195,14 @@ def delete_index_documents_by_title(
     config: AppConfig,
     title: str,
     *,
+    user_id: str,
     credential: TokenCredential | None = None,
     session: Any = requests,
 ) -> int:
     deleted = 0
-    odata_filter = f"title eq '{_escape_odata_string(title)}'"
+    odata_filter = (
+        f"title eq '{_escape_odata_string(title)}' and user_id eq '{_escape_odata_string(user_id)}'"
+    )
     with _credential_scope(credential) as resolved:
         while True:
             result = _request(
@@ -229,6 +238,7 @@ def delete_document(
     config: AppConfig,
     name: str,
     *,
+    user_id: str,
     credential: TokenCredential | None = None,
     blob_service_client: Any | None = None,
 ) -> None:
@@ -247,7 +257,7 @@ def delete_document(
                 credential=resolved_credential,
             )
         container = blob_service_client.get_container_client(config.storage_container)
-        blob = container.get_blob_client(name)
+        blob = container.get_blob_client(f"{user_id}/{name}")
         if not blob.exists():
             raise FileNotFoundError(name)
         blob.delete_blob()
@@ -264,6 +274,7 @@ def delete_corpus_document(
     config: AppConfig,
     name: str,
     *,
+    user_id: str,
     credential: TokenCredential | None = None,
     session: Any = requests,
     blob_service_client: Any | None = None,
@@ -275,11 +286,12 @@ def delete_corpus_document(
     deleted_chunks = delete_index_documents_by_title(
         config,
         name,
+        user_id=user_id,
         credential=credential,
         session=session,
     )
     try:
-        delete_document(config, name, credential=credential, blob_service_client=blob_service_client)
+        delete_document(config, name, user_id=user_id, credential=credential, blob_service_client=blob_service_client)
     except FileNotFoundError:
         if deleted_chunks == 0:
             raise

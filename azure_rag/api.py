@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from .agent import create_rag_agent
 from .config import AppConfig
 from .corpus import router as corpus_router
+from .identity import current_user_id, validate_user_id
 from .rag import RagService
 from .readiness import DependencyResult, ReadinessService, probe_openai, probe_search
 from .sessions import SessionStore, router as sessions_router
@@ -70,6 +71,11 @@ def create_app(
     @application.middleware("http")
     async def trace_request(request: Request, call_next):
         started = perf_counter()
+        app_config = getattr(request.app.state, "config", None)
+        local_fallback = app_config.session_local_user_id if app_config else None
+        user_token = current_user_id.set(
+            validate_user_id(request.headers.get("x-rag-user-id") or local_fallback)
+        )
         with tracer.start_as_current_span("rag.request") as span:
             span.set_attribute("http.request.method", request.method)
             span.set_attribute("url.path", request.url.path)
@@ -82,6 +88,7 @@ def create_app(
                 raise
             finally:
                 span.set_attribute("rag.request.duration_ms", (perf_counter() - started) * 1000)
+                current_user_id.reset(user_token)
 
     @application.get("/health")
     def health() -> dict[str, str]:

@@ -289,7 +289,7 @@ def test_get_indexer_status_requests_indexer_status_endpoint():
     assert f"/indexers/{cfg.indexer_name}/status" in url
 
 
-def test_list_documents_returns_supported_blob_metadata():
+def test_list_documents_scopes_to_user_prefix_and_strips_it():
     class Blob:
         def __init__(self, name, size, last_modified):
             self.name = name
@@ -297,13 +297,14 @@ def test_list_documents_returns_supported_blob_metadata():
             self.last_modified = last_modified
 
     class Container:
-        def list_blobs(self):
+        def list_blobs(self, name_starts_with=None):
             from datetime import datetime, timezone
 
+            assert name_starts_with == "user-a/"
             return [
-                Blob("guide.md", 12, datetime(2026, 1, 1, tzinfo=timezone.utc)),
-                Blob("notes.txt", 4, None),
-                Blob("manual.PDF", 99, None),
+                Blob("user-a/guide.md", 12, datetime(2026, 1, 1, tzinfo=timezone.utc)),
+                Blob("user-a/notes.txt", 4, None),
+                Blob("user-a/manual.PDF", 99, None),
             ]
 
     class Service:
@@ -311,7 +312,7 @@ def test_list_documents_returns_supported_blob_metadata():
             assert name == "docs"
             return Container()
 
-    documents = search_pipeline.list_documents(config(), blob_service_client=Service())
+    documents = search_pipeline.list_documents(config(), user_id="user-a", blob_service_client=Service())
 
     assert documents == [
         {"name": "guide.md", "size": 12, "last_modified": "2026-01-01T00:00:00+00:00"},
@@ -319,13 +320,14 @@ def test_list_documents_returns_supported_blob_metadata():
     ]
 
 
-def test_upload_document_uploads_single_blob_with_content_type():
+def test_upload_document_prefixes_blob_and_stamps_user_metadata():
     uploads = {}
 
     class Blob:
         def upload_blob(self, data, **kwargs):
             uploads["data"] = data
             uploads["content_type"] = kwargs["content_settings"].content_type
+            uploads["metadata"] = kwargs["metadata"]
 
     class Container:
         def create_container(self):
@@ -340,14 +342,15 @@ def test_upload_document_uploads_single_blob_with_content_type():
             return Container()
 
     uploaded = search_pipeline.upload_document(
-        config(), "sample.md", b"hello", blob_service_client=Service()
+        config(), "sample.md", b"hello", user_id="user-a", blob_service_client=Service()
     )
 
     assert uploaded == "sample.md"
     assert uploads == {
-        "name": "sample.md",
+        "name": "user-a/sample.md",
         "data": b"hello",
         "content_type": "text/markdown; charset=utf-8",
+        "metadata": {"userId": "user-a"},
     }
 
 
@@ -355,4 +358,6 @@ def test_upload_document_rejects_unsupported_extension():
     import pytest
 
     with pytest.raises(ValueError, match="unsupported document type"):
-        search_pipeline.upload_document(config(), "notes.txt", b"hello", blob_service_client=object())
+        search_pipeline.upload_document(
+            config(), "notes.txt", b"hello", user_id="user-a", blob_service_client=object()
+        )

@@ -108,7 +108,7 @@ def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     openai_client = FakeOpenAIClient()
     service = RagService(config(), credential=credential, openai_client=openai_client, session=session)
 
-    chunks = service.retrieve("question", top=3)
+    chunks = service.retrieve("question", top=3, user_id="user-a")
 
     assert service.openai is openai_client
     assert chunks[0].title == "doc"
@@ -241,7 +241,7 @@ def test_retrieve_filters_out_low_scoring_chunks():
         openai_client=FakeOpenAIClient(),
         session=FilterSession(),
     )
-    chunks = service.retrieve("security")
+    chunks = service.retrieve("security", user_id="user-a")
 
     assert len(chunks) == 1
     assert chunks[0].source_path == "high.md"
@@ -270,9 +270,9 @@ def test_retrieve_applies_source_title_filter():
         openai_client=FakeOpenAIClient(),
         session=session,
     )
-    service.retrieve("battery capacity", source="Tesla Powerwall")
+    service.retrieve("battery capacity", user_id="user-a", source="Tesla Powerwall")
 
-    assert session.calls[0]["json"]["filter"] == "search.ismatch('Tesla Powerwall', 'title')"
+    assert session.calls[0]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null) and search.ismatch('Tesla Powerwall', 'title')"
 
 
 def test_retrieve_escapes_single_quotes_in_source_filter():
@@ -298,12 +298,25 @@ def test_retrieve_escapes_single_quotes_in_source_filter():
         openai_client=FakeOpenAIClient(),
         session=session,
     )
-    service.retrieve("warranty", source="Bob's Manual")
+    service.retrieve("warranty", user_id="user-a", source="Bob's Manual")
 
-    assert session.calls[0]["json"]["filter"] == "search.ismatch('Bob''s Manual', 'title')"
+    assert session.calls[0]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null) and search.ismatch('Bob''s Manual', 'title')"
 
 
-def test_retrieve_omits_filter_when_source_not_set():
+def test_retrieve_rejects_invalid_user_id():
+    import pytest
+
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=FakeSession(),
+    )
+    with pytest.raises(ValueError, match="invalid user id"):
+        service.retrieve("security", user_id="bad'id")
+
+
+def test_retrieve_always_applies_user_isolation_filter():
     session = FakeSession()
     service = RagService(
         config(),
@@ -311,9 +324,9 @@ def test_retrieve_omits_filter_when_source_not_set():
         openai_client=FakeOpenAIClient(),
         session=session,
     )
-    service.retrieve("security")
+    service.retrieve("security", user_id="user-a")
 
-    assert "filter" not in session.calls[0][1]["json"]
+    assert session.calls[0][1]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null)"
 
 
 def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
@@ -333,7 +346,7 @@ def test_retrieve_records_question_context_scores_and_duration(monkeypatch):
         session=FakeSession(),
     )
 
-    service.retrieve("security", top=3)
+    service.retrieve("security", top=3, user_id="user-a")
 
     span = tracer.spans[0]
     assert span.name == "rag.retrieve"
