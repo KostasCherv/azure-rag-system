@@ -6,6 +6,31 @@ Use this runbook for greenfield bootstrap, existing-resource deployment, Azure p
 
 Follow these steps before running the production-style deployment.
 
+### GitHub Actions production deployment
+
+`.github/workflows/ci-cd.yml` validates only the affected API, UI, and infrastructure components on pull requests. A successful push to `main` publishes changed images with the commit SHA as the immutable tag and automatically deploys them through the protected `production` GitHub environment. Documentation-only changes do not redeploy the runtime.
+
+Create a GitHub environment named `production` and add these environment variables:
+
+| Variable | Value |
+|---|---|
+| `AZURE_CLIENT_ID` | Client ID of the CI deployment app or managed identity |
+| `AZURE_TENANT_ID` | Production Entra tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Production Azure subscription ID |
+| `AZURE_RESOURCE_GROUP` | Resource group containing the runtime deployment |
+| `AZURE_SEARCH_RESOURCE_GROUP` | Resource group containing Azure AI Search |
+| `AZURE_SEARCH_SERVICE_NAME` | Existing Search service name |
+| `AZURE_ACR_NAME` | Azure Container Registry resource name |
+| `AZURE_ACR_LOGIN_SERVER` | Registry login server, such as `example.azurecr.io` |
+| `AZURE_API_CONTAINER_APP` | Production API Container App name |
+| `AZURE_UI_CONTAINER_APP` | Production UI Container App name |
+
+Configure a federated identity credential with issuer `https://token.actions.githubusercontent.com`, audience `api://AzureADTokenExchange`, and subject `repo:<owner>/<repository>:environment:production`. Do not create a client secret. Grant the deployment identity `AcrPush` and `Container Registry Tasks Contributor` on ACR, permission to update the two Container Apps and the deployment resource group, permission to update the Search service identity, and permission to create the role assignments declared by Bicep on the referenced OpenAI, Search, Storage, and ACR scopes. Scope these grants to the listed resources instead of the subscription whenever possible.
+
+Replace every placeholder in `infra/parameters/prod.bicepparam` before enabling deployment. The workflow overrides `apiImage` and `uiImage` with newly built or currently deployed images, so an infrastructure-only release cannot roll the applications back to the example tags in the parameter file.
+
+Protect `main`, require pull requests, and make the `CI gate` check mandatory. The production job has its own concurrency group and cancels an older in-progress release when a newer valid commit arrives. Add required reviewers to the `production` environment only if deployments should pause for manual approval.
+
 For the shortest path in a new development subscription, use the end-to-end wrapper after reviewing the prerequisites below:
 
 ```bash

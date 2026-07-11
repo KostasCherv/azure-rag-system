@@ -164,6 +164,11 @@ def test_routes_and_standard_v2_apim_are_deployed() -> None:
         assert f"name: '{route}'" in apim
     assert "StandardV2" in service
     assert "virtualNetworkType: 'External'" in service
+    assert "developerPortalStatus: 'Disabled'" in service
+    assert "legacyPortalStatus: 'Disabled'" in service
+    assert "natGatewayState: 'Enabled'" in service
+    assert "Security.Protocols.Tls10" in service
+    assert "Security.Protocols.Tls11" in service
     assert "Microsoft.ApiManagement/service/apis/policies" in apim
 
 

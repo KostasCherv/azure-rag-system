@@ -1,0 +1,265 @@
+name: CI/CD
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      api: ${{ steps.filter.outputs.api }}
+      ui: ${{ steps.filter.outputs.ui }}
+      infra: ${{ steps.filter.outputs.infra }}
+      deploy_api: ${{ steps.filter.outputs.deploy_api }}
+      deploy_ui: ${{ steps.filter.outputs.deploy_ui }}
+      deploy_infra: ${{ steps.filter.outputs.deploy_infra }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        name: Classify changed files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            files="$(git ls-files)"
+          else
+            files="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          fi
+
+          api=false ui=false infra=false
+          deploy_api=false deploy_ui=false deploy_infra=false
+          while IFS= read -r file; do
+            case "$file" in
+              azure_rag/*|main.py|Dockerfile|pyproject.toml|uv.lock)
+                api=true; deploy_api=true ;;
+              ui/*)
+                ui=true; deploy_ui=true ;;
+              infra/*)
+                infra=true; deploy_infra=true ;;
+              tests/test_infra*)
+                api=true; infra=true ;;
+              tests/*)
+                api=true ;;
+              .github/workflows/*)
+                api=true; ui=true; infra=true ;;
+            esac
+          done <<< "$files"
+
+          echo "api=$api" >> "$GITHUB_OUTPUT"
+          echo "ui=$ui" >> "$GITHUB_OUTPUT"
+          echo "infra=$infra" >> "$GITHUB_OUTPUT"
+          echo "deploy_api=$deploy_api" >> "$GITHUB_OUTPUT"
+          echo "deploy_ui=$deploy_ui" >> "$GITHUB_OUTPUT"
+          echo "deploy_infra=$deploy_infra" >> "$GITHUB_OUTPUT"
+          printf 'Changed files:\n%s\n' "$files"
+
+  validate-api:
+    name: Validate API
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install uv && uv sync --frozen
+      - name: Install Bicep used by the full test suite
+        run: az bicep install
+      - name: Test
+        run: uv run pytest
+      - name: Validate production image
+        run: docker build --tag azure-rag-api:ci .
+
+  validate-ui:
+    name: Validate UI
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
+      - name: Validate production image
+        run: docker build --tag azure-rag-ui:ci .
+
+  validate-infra:
+    name: Validate infrastructure
+    needs: changes
+    if: needs.changes.outputs.infra == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: pip install uv && uv sync --frozen
+      - name: Install Bicep
+        run: az bicep install
+      - name: Compile templates
+        run: |
+          az bicep build --file infra/bootstrap.bicep --stdout >/dev/null
+          az bicep build --file infra/main.bicep --stdout >/dev/null
+      - name: Test infrastructure
+        run: uv run pytest tests/test_infra_static.py tests/test_infra_scripts.py
+
+  gate:
+    name: CI gate
+    if: always()
+    needs: [changes, validate-api, validate-ui, validate-infra]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every applicable validation
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          API: ${{ needs.validate-api.result }}
+          UI: ${{ needs.validate-ui.result }}
+          INFRA: ${{ needs.validate-infra.result }}
+        run: |
+          set -euo pipefail
+          for result in "$CHANGES" "$API" "$UI" "$INFRA"; do
+            [[ "$result" == success || "$result" == skipped ]] || exit 1
+          done
+
+  release:
+    name: Release production
+    if: >-
+      github.event_name == 'push' &&
+      (needs.changes.outputs.deploy_api == 'true' ||
+       needs.changes.outputs.deploy_ui == 'true' ||
+       needs.changes.outputs.deploy_infra == 'true')
+    needs: [changes, gate]
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      SEARCH_RESOURCE_GROUP: ${{ vars.AZURE_SEARCH_RESOURCE_GROUP }}
+      SEARCH_SERVICE_NAME: ${{ vars.AZURE_SEARCH_SERVICE_NAME }}
+      ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
+      API_APP: ${{ vars.AZURE_API_CONTAINER_APP }}
+      UI_APP: ${{ vars.AZURE_UI_CONTAINER_APP }}
+      API_CHANGED: ${{ needs.changes.outputs.deploy_api }}
+      UI_CHANGED: ${{ needs.changes.outputs.deploy_ui }}
+      INFRA_CHANGED: ${{ needs.changes.outputs.deploy_infra }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Azure login
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Resolve release images
+        id: images
+        run: |
+          set -euo pipefail
+          previous_api="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$API_APP" --query 'properties.template.containers[0].image' --output tsv)"
+          previous_ui="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query 'properties.template.containers[0].image' --output tsv)"
+          api_image="$previous_api"
+          ui_image="$previous_ui"
+          [[ "$API_CHANGED" == true ]] && api_image="$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
+          [[ "$UI_CHANGED" == true ]] && ui_image="$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
+          {
+            echo "previous_api=$previous_api"
+            echo "previous_ui=$previous_ui"
+            echo "api=$api_image"
+            echo "ui=$ui_image"
+          } >> "$GITHUB_OUTPUT"
+      - name: Preview infrastructure
+        if: env.INFRA_CHANGED == 'true'
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          UI_IMAGE: ${{ steps.images.outputs.ui }}
+        run: |
+          set -euo pipefail
+          ./infra/enable-search-identity.sh "$AZURE_SUBSCRIPTION_ID" "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME"
+          az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters infra/parameters/prod.bicepparam \
+              searchResourceGroupName="$SEARCH_RESOURCE_GROUP" \
+              searchServiceName="$SEARCH_SERVICE_NAME" \
+              apiImage="$API_IMAGE" \
+              uiImage="$UI_IMAGE" \
+            --no-pretty-print
+      - name: Publish API image
+        if: env.API_CHANGED == 'true'
+        run: az acr build --registry "$ACR_NAME" --image "azure-rag-api:${GITHUB_SHA}" --file Dockerfile .
+      - name: Publish UI image
+        if: env.UI_CHANGED == 'true'
+        run: az acr build --registry "$ACR_NAME" --image "azure-rag-ui:${GITHUB_SHA}" --file ui/Dockerfile ui
+      - name: Deploy and verify
+        env:
+          API_IMAGE: ${{ steps.images.outputs.api }}
+          UI_IMAGE: ${{ steps.images.outputs.ui }}
+          PREVIOUS_API: ${{ steps.images.outputs.previous_api }}
+          PREVIOUS_UI: ${{ steps.images.outputs.previous_ui }}
+        run: |
+          set -euo pipefail
+
+          wait_for_healthy_revision() {
+            local app="$1"
+            for _ in {1..30}; do
+              if az containerapp revision list --resource-group "$RESOURCE_GROUP" --name "$app" \
+                --query "[?properties.active && properties.healthState == 'Healthy' && properties.provisioningState == 'Succeeded'] | length(@)" \
+                --output tsv | grep -qx '[1-9][0-9]*'; then
+                return 0
+              fi
+              sleep 10
+            done
+            return 1
+          }
+
+          deploy() {
+            if [[ "$INFRA_CHANGED" == true ]]; then
+              ./infra/deploy.sh "$RESOURCE_GROUP" prod "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME" "$API_IMAGE" "$UI_IMAGE" || return
+            else
+              [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$API_IMAGE" || return
+              [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$UI_IMAGE" || return
+            fi
+
+            [[ "$API_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$API_APP" || return
+            [[ "$UI_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$UI_APP" || return
+
+            ui_fqdn="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query properties.configuration.ingress.fqdn --output tsv)"
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://$ui_fqdn/")" || return
+            [[ "$status" == 200 || "$status" =~ ^30[1278]$ ]]
+          }
+
+          if ! deploy; then
+            echo 'Deployment verification failed; restoring previous images.' >&2
+            [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$PREVIOUS_API" || true
+            [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$PREVIOUS_UI" || true
+            exit 1
+          fi

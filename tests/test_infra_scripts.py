@@ -95,3 +95,35 @@ def test_deploy_overrides_bicep_search_target_with_predeploy_target(tmp_path: Pa
     assert "--name azure-rag-dev" in deployment
     assert "searchResourceGroupName=canonical-search-rg" in deployment
     assert "searchServiceName=canonical-search" in deployment
+
+
+def test_deploy_accepts_immutable_image_overrides(tmp_path: Path) -> None:
+    _, log = fake_az(tmp_path)
+    env = os.environ | {
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "AZ_LOG": str(log),
+        "CURRENT_IDENTITY_JSON": "{}",
+        "PATCH_BODY_FILE": str(tmp_path / "patch.json"),
+        "SYSTEM_PRINCIPAL_ID": "system-principal",
+    }
+    subprocess.run(
+        [
+            str(ROOT / "infra/deploy.sh"),
+            "deployment-rg",
+            "dev",
+            "search-rg",
+            "search",
+            "registry/azure-rag-api:commit",
+            "registry/azure-rag-ui:commit",
+        ],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    deployment = next(
+        command for command in log.read_text().splitlines() if command.startswith("deployment group create")
+    )
+    assert "apiImage=registry/azure-rag-api:commit" in deployment
+    assert "uiImage=registry/azure-rag-ui:commit" in deployment
