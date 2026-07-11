@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,6 +32,13 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            # Manual runs validate and release everything.
+            for flag in api ui infra deploy_api deploy_ui deploy_infra; do
+              echo "$flag=true" >> "$GITHUB_OUTPUT"
+            done
+            exit 0
+          fi
           if [[ "$BASE_SHA" =~ ^0+$ ]]; then
             files="$(git ls-files)"
           else
@@ -149,7 +157,7 @@ jobs:
   release:
     name: Release production
     if: >-
-      github.event_name == 'push' &&
+      github.event_name != 'pull_request' &&
       (needs.changes.outputs.deploy_api == 'true' ||
        needs.changes.outputs.deploy_ui == 'true' ||
        needs.changes.outputs.deploy_infra == 'true')
