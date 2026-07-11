@@ -259,6 +259,23 @@ def test_search_payloads_are_keyless_and_data_source_uses_resource_id():
     }
 
 
+def test_index_and_skillset_carry_user_id_for_isolation():
+    credential = FakeCredential()
+    session = FakeSession()
+    cfg = config()
+
+    search_pipeline.create_or_update_index(cfg, credential=credential, session=session)
+    search_pipeline.create_or_update_skillset(cfg, credential=credential, session=session)
+
+    index, skillset = [call[2]["json"] for call in session.calls]
+    user_id_field = next(field for field in index["fields"] if field["name"] == "user_id")
+    assert user_id_field["filterable"] is True
+    assert user_id_field["retrievable"] is False
+    assert user_id_field["searchable"] is False
+    mappings = skillset["indexProjections"]["selectors"][0]["mappings"]
+    assert {"name": "user_id", "source": "/document/userId"} in mappings
+
+
 def test_get_indexer_status_requests_indexer_status_endpoint():
     credential = FakeCredential()
     session = FakeSession()

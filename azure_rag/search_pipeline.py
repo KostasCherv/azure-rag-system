@@ -343,6 +343,9 @@ def create_or_update_index(
             {"name": "parent_id", "type": "Edm.String", "filterable": True},
             {"name": "title", "type": "Edm.String", "searchable": True, "filterable": True, "retrievable": True},
             {"name": "source_path", "type": "Edm.String", "filterable": True, "retrievable": True},
+            # Per-user isolation: filterable only, never returned or searched.
+            # null means the document belongs to the shared corpus.
+            {"name": "user_id", "type": "Edm.String", "filterable": True, "retrievable": False, "searchable": False},
             {"name": "chunk", "type": "Edm.String", "searchable": True, "retrievable": True},
             {
                 "name": "chunk_vector",
@@ -456,6 +459,7 @@ def create_or_update_skillset(
                         {"name": "chunk_vector", "source": "/document/pages/*/chunk_vector"},
                         {"name": "title", "source": "/document/metadata_storage_name"},
                         {"name": "source_path", "source": "/document/metadata_storage_path"},
+                        {"name": "user_id", "source": "/document/userId"},
                     ],
                 }
             ],
