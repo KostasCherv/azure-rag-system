@@ -14,7 +14,7 @@ curl http://127.0.0.1:8000/health
 
 ### `GET /ready`
 
-Checks Azure AI Search and Azure OpenAI using managed identity. The response includes the index document count and normalized latest indexer result. Independent probes have a five-second aggregate deadline, and results are cached for 30 seconds.
+Checks Azure AI Search, Azure OpenAI, and configured Cosmos DB session storage using managed identity. The response includes the index document count and normalized latest indexer result. Independent probes have a five-second aggregate deadline, and results are cached for 30 seconds.
 
 It returns HTTP 200 with `ready` when dependencies work and documents are present, HTTP 200 with `degraded` for a failed historical indexer run, or HTTP 503 with `unavailable` when a dependency fails/times out or the index is empty.
 
@@ -32,9 +32,25 @@ It returns HTTP 200 with `ready` when dependencies work and documents are presen
     },
     "error": null
   },
-  "openai": {"status": "available", "error": null}
+  "openai": {"status": "available", "error": null},
+  "cosmos": {"status": "available", "error": null}
 }
 ```
+
+### `/sessions`
+
+Discussion-history routes require `X-RAG-User-ID`, supplied by the trusted Next.js/APIM boundary in Azure. Local development falls back to `SESSION_LOCAL_USER_ID`. All Cosmos reads and queries use that value as the `/userId` partition key.
+
+| Method | Route | Behavior |
+|---|---|---|
+| `GET` | `/sessions?limit=30&before=<cursor>` | Newest-first session summaries with an opaque `nextCursor`. |
+| `POST` | `/sessions` | Creates an empty session; an optional UUID `id` may be supplied. |
+| `GET` | `/sessions/{id}` | Returns one session and its complete AG-UI messages. |
+| `PUT` | `/sessions/{id}` | Replaces the message snapshot; requires the current ETag in `If-Match`. |
+| `PATCH` | `/sessions/{id}` | Renames the discussion; requires `If-Match`. |
+| `DELETE` | `/sessions/{id}` | Permanently deletes the discussion. |
+
+Missing or cross-user session IDs return 404. Concurrent writes return 409. Cosmos availability failures return 503 without exposing provider diagnostics.
 
 ### `POST /agui`
 

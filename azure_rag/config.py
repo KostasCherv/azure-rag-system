@@ -26,6 +26,10 @@ class AppConfig:
     search_api_version: str = "2026-05-01-preview"
     search_min_score: float = 1.5
     answer_max_tokens: int = 5000
+    cosmos_endpoint: str | None = None
+    cosmos_database: str = "rag"
+    cosmos_sessions_container: str = "sessions"
+    session_local_user_id: str | None = "local-development-user"
 
     @classmethod
     def from_env(cls, load_dotenv_file: bool = True) -> "AppConfig":
@@ -68,6 +72,10 @@ class AppConfig:
             ),
             search_min_score=float(os.getenv("AZURE_SEARCH_MIN_SCORE", "2.0")),
             answer_max_tokens=int(os.getenv("RAG_ANSWER_MAX_TOKENS", "5000")),
+            cosmos_endpoint=os.getenv("AZURE_COSMOS_ENDPOINT", "").rstrip("/") or None,
+            cosmos_database=os.getenv("AZURE_COSMOS_DATABASE", "rag"),
+            cosmos_sessions_container=os.getenv("AZURE_COSMOS_SESSIONS_CONTAINER", "sessions"),
+            session_local_user_id=os.getenv("SESSION_LOCAL_USER_ID", "local-development-user") or None,
         )
 
     def agent_default_options(self) -> dict[str, int]:

@@ -75,6 +75,44 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
+  name: '${namePrefix}-cosmos'
+  location: location
+  kind: 'GlobalDocumentDB'
+  properties: {
+    databaseAccountOfferType: 'Standard'
+    consistencyPolicy: { defaultConsistencyLevel: 'Session' }
+    locations: [{ locationName: location, failoverPriority: 0, isZoneRedundant: false }]
+    publicNetworkAccess: 'Enabled'
+    disableLocalAuth: true
+    capabilities: [{ name: 'EnableServerless' }]
+  }
+}
+
+resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-11-15' = {
+  parent: cosmos
+  name: 'rag'
+  properties: { resource: { id: 'rag' } }
+}
+
+resource sessionsContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
+  parent: cosmosDatabase
+  name: 'sessions'
+  properties: {
+    resource: {
+      id: 'sessions'
+      partitionKey: { paths: ['/userId'], kind: 'Hash', version: 2 }
+      defaultTtl: 7776000
+      indexingPolicy: {
+        indexingMode: 'consistent'
+        automatic: true
+        includedPaths: [{ path: '/userId/?' }, { path: '/updatedAt/?' }]
+        excludedPaths: [{ path: '/messages/*' }]
+      }
+    }
+  }
+}
+
 resource acrPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (!empty(containerRegistryName)) {
   name: '${namePrefix}-acr-pull'
   location: location
@@ -127,11 +165,22 @@ module apps 'modules/container-apps.bicep' = {
     storageContainer: storageContainer
     storageResourceId: storageResourceId
     applicationInsightsConnectionString: applicationInsights.properties.ConnectionString
+    cosmosEndpoint: cosmos.properties.documentEndpoint
     uiUserAuthClientId: uiUserAuthClientId
   }
   dependsOn: [
     acrRbac
   ]
+}
+
+resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
+  parent: cosmos
+  name: guid(cosmos.id, '${namePrefix}-api', 'cosmos-data-contributor')
+  properties: {
+    principalId: apps.outputs.apiPrincipalId
+    roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
+    scope: cosmos.id
+  }
 }
 
 module privateDns 'modules/private-dns.bicep' = if (!useSingleContainerAppsEnvironment) {

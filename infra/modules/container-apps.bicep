@@ -22,6 +22,7 @@ param storageAccountUrl string
 param storageContainer string
 param storageResourceId string
 param applicationInsightsConnectionString string
+param cosmosEndpoint string
 param uiUserAuthClientId string
 
 resource internalEnvironment 'Microsoft.App/managedEnvironments@2024-03-01' = if (!useSingleEnvironment) {
@@ -92,6 +93,10 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AZURE_STORAGE_CONTAINER', value: storageContainer }
             { name: 'AZURE_STORAGE_RESOURCE_ID', value: storageResourceId }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsightsConnectionString }
+            { name: 'AZURE_COSMOS_ENDPOINT', value: cosmosEndpoint }
+            { name: 'AZURE_COSMOS_DATABASE', value: 'rag' }
+            { name: 'AZURE_COSMOS_SESSIONS_CONTAINER', value: 'sessions' }
+            { name: 'SESSION_LOCAL_USER_ID', value: '' }
           ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
           probes: [

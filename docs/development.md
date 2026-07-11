@@ -10,6 +10,7 @@ azure_rag/
   search_pipeline.py  Blob upload and Azure AI Search object management
   rag.py              Hybrid retrieval, prompting, and answer generation
   api.py              FastAPI routes and request/response models
+  sessions.py         Per-user Cosmos DB discussion storage and APIs
   agent.py            Agent Framework agent + search_docs tool
 sample_docs/          Sample Markdown/PDF knowledge base
 scripts/
@@ -95,6 +96,8 @@ APIM_SCOPE=api://your-apim-app-id/.default
 # Optional when readiness is not AGENT_URL with terminal /agui replaced by /ready:
 READY_URL=https://your-api.example.com/ready
 ```
+
+Discussion persistence additionally requires `AZURE_COSMOS_ENDPOINT`, `AZURE_COSMOS_DATABASE`, and `AZURE_COSMOS_SESSIONS_CONTAINER` in the root `.env`. The local developer identity needs Cosmos DB data-plane access; keys and connection strings are not supported. Local requests use `SESSION_LOCAL_USER_ID=local-development-user` unless overridden. The container partition key is `/userId` and its default TTL is 7,776,000 seconds.
 
 The Next.js server uses `DefaultAzureCredential` to acquire an APIM token for `APIM_SCOPE`; the scope must end in `/.default`. This supports Container Apps managed identity and the local Azure developer credential chain. `AGENT_URL`, `READY_URL`, credentials, and bearer tokens remain server-side. The browser only calls same-origin Next.js routes. The UI polls readiness every 30 seconds and enables chat only while the backend reports `ready`.
 
