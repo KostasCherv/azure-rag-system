@@ -21,7 +21,7 @@ describe("copilot route", () => {
     const handle = vi.fn(async () => new Response("ok"));
     const post = createPostHandler({ getToken: async () => "secret", makeAgent, makeEndpoint: vi.fn(() => ({ handleRequest: handle })) as never, getUrl: () => "https://example.test/agui" });
     await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
-    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", { Authorization: "Bearer secret" });
+    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", { Authorization: "Bearer secret", "X-RAG-User-ID": "local-development-user" });
     expect(handle).toHaveBeenCalledOnce();
   });
 
@@ -32,15 +32,15 @@ describe("copilot route", () => {
     await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
     await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
     expect(getToken).toHaveBeenCalledTimes(2);
-    expect(makeAgent).toHaveBeenNthCalledWith(1, "https://example.test/agui", { Authorization: "Bearer first" });
-    expect(makeAgent).toHaveBeenNthCalledWith(2, "https://example.test/agui", { Authorization: "Bearer second" });
+    expect(makeAgent).toHaveBeenNthCalledWith(1, "https://example.test/agui", { Authorization: "Bearer first", "X-RAG-User-ID": "local-development-user" });
+    expect(makeAgent).toHaveBeenNthCalledWith(2, "https://example.test/agui", { Authorization: "Bearer second", "X-RAG-User-ID": "local-development-user" });
   });
 
   it("omits Authorization header when APIM token is unavailable", async () => {
     const makeAgent = vi.fn(() => ({} as never));
     const post = createPostHandler({ getToken: async () => null, makeAgent, makeEndpoint: vi.fn(() => ({ handleRequest: async () => new Response("ok") })) as never, getUrl: () => "https://example.test/agui" });
     await post(new Request("http://localhost/api/copilotkit", { method: "POST" }) as never);
-    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", {});
+    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", { "X-RAG-User-ID": "local-development-user" });
   });
 
   it("returns 401 when user auth is required and principal is missing", async () => {
@@ -56,12 +56,13 @@ describe("copilot route", () => {
     delete process.env.REQUIRE_USER_AUTH;
   });
 
-  it("passes through when user auth is required and principal is present", async () => {
+  it("forwards the principal oid as the user id when user auth is required", async () => {
     process.env.REQUIRE_USER_AUTH = "true";
     const handle = vi.fn(async () => new Response("ok"));
+    const makeAgent = vi.fn(() => ({} as never));
     const post = createPostHandler({
       getToken: async () => "secret",
-      makeAgent: vi.fn(() => ({} as never)),
+      makeAgent,
       makeEndpoint: vi.fn(() => ({ handleRequest: handle })) as never,
       getUrl: () => "https://example.test/agui",
     });
@@ -73,6 +74,10 @@ describe("copilot route", () => {
     );
     expect(response.status).toBe(200);
     expect(handle).toHaveBeenCalledOnce();
+    expect(makeAgent).toHaveBeenCalledWith("https://example.test/agui", {
+      Authorization: "Bearer secret",
+      "X-RAG-User-ID": "11111111-1111-1111-1111-111111111111",
+    });
     delete process.env.REQUIRE_USER_AUTH;
   });
 });
