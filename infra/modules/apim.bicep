@@ -75,6 +75,37 @@ resource corpusStatus 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
   properties: { displayName: 'Corpus indexer status', method: 'GET', urlTemplate: '/corpus/indexer' }
 }
 
+resource sessionsList 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'sessions-list'
+  properties: { displayName: 'Session list', method: 'GET', urlTemplate: '/sessions' }
+}
+resource sessionsCreate 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'sessions-create'
+  properties: { displayName: 'Session create', method: 'POST', urlTemplate: '/sessions' }
+}
+resource sessionGet 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'session-get'
+  properties: { displayName: 'Session get', method: 'GET', urlTemplate: '/sessions/{id}', templateParameters: [{ name: 'id', type: 'string', required: true }] }
+}
+resource sessionUpdate 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'session-update'
+  properties: { displayName: 'Session update', method: 'PUT', urlTemplate: '/sessions/{id}', templateParameters: [{ name: 'id', type: 'string', required: true }] }
+}
+resource sessionRename 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'session-rename'
+  properties: { displayName: 'Session rename', method: 'PATCH', urlTemplate: '/sessions/{id}', templateParameters: [{ name: 'id', type: 'string', required: true }] }
+}
+resource sessionDelete 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'session-delete'
+  properties: { displayName: 'Session delete', method: 'DELETE', urlTemplate: '/sessions/{id}', templateParameters: [{ name: 'id', type: 'string', required: true }] }
+}
+
 var rawPolicy = loadTextContent('../policies/api-policy.xml')
 var tenantPolicy = replace(rawPolicy, '{{tenantId}}', tenantId)
 var audiencePolicy = replace(tenantPolicy, '{{apimAudience}}', apimAudience)
@@ -91,5 +122,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus]
+  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus, sessionsList, sessionsCreate, sessionGet, sessionUpdate, sessionRename, sessionDelete]
 }

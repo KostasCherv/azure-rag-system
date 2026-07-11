@@ -1,6 +1,6 @@
 # Azure AI Search RAG Demo
 
-A production-shaped Azure-native RAG system for grounded chat over Markdown and PDF documents. It uses Azure Blob Storage for source files, Azure AI Search for indexing and hybrid semantic retrieval, Azure OpenAI for embeddings and answers, FastAPI for AG-UI streaming, and a Next.js + CopilotKit console for the user experience.
+A production-shaped Azure-native RAG system for grounded chat over Markdown and PDF documents. It uses Azure Blob Storage for source files, Azure AI Search for indexing and hybrid semantic retrieval, Azure OpenAI for embeddings and answers, Cosmos DB for per-user discussion history, FastAPI for AG-UI streaming, and a Next.js + CopilotKit console for the user experience.
 
 The project is designed around managed identities, least-privilege RBAC, API Management, private backend ingress, and repeatable Bicep deployment. It is a practical reference for taking a RAG prototype past the "single script and some keys" phase.
 
@@ -19,7 +19,8 @@ The project is designed around managed identities, least-privilege RBAC, API Man
 - Azure AI Search indexing pipeline: Blob data source, skillset, chunking, embeddings, vector index, semantic ranking, and indexer controls.
 - Grounded answer generation through Azure OpenAI with citation-friendly retrieved sources.
 - FastAPI backend exposing `/health`, `/ready`, and AG-UI `/agui` streaming.
-- Next.js CopilotKit console with chat, readiness gating, citations, and corpus management.
+- Per-user discussion history in Cosmos DB with reopen, rename, delete, optimistic concurrency, and 90-day inactivity expiry.
+- Next.js CopilotKit console with chat, readiness gating, citations, session history, and corpus management.
 - Production-style Azure deployment with Container Apps, APIM Standard v2, private API ingress, managed identities, RBAC, telemetry, and Bicep.
 - Greenfield bootstrap for empty subscriptions, while still supporting manually-created Azure resources.
 
@@ -50,6 +51,8 @@ Run locally:
 uv run uvicorn azure_rag.api:app --reload
 cd ui && npm run dev
 ```
+
+Local history uses `SESSION_LOCAL_USER_ID=local-development-user`. Set the Cosmos endpoint, database, and container values from `.env.example`; authentication remains keyless through your Azure CLI/developer credential. The Cosmos container must use `/userId` as its partition key and a 7,776,000-second default TTL.
 
 Run checks:
 
@@ -96,6 +99,7 @@ flowchart LR
     Blob[Azure Blob Storage] --> Search[Azure AI Search]
     Search --> API[FastAPI AG-UI API]
     AOAI[Azure OpenAI] --> API
+    Cosmos[Azure Cosmos DB] --> API
     API --> APIM[API Management]
     APIM --> UI[Next.js CopilotKit UI]
 ```

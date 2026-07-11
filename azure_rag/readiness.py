@@ -43,10 +43,13 @@ class ReadinessResult:
     search: SearchResult
     openai: DependencyResult
     http_status: int
+    cosmos: DependencyResult | None = None
 
     def response_body(self) -> dict[str, Any]:
         body = asdict(self)
         body.pop("http_status")
+        if self.cosmos is None:
+            body.pop("cosmos")
         return body
 
 
@@ -144,6 +147,7 @@ class ReadinessService:
         self,
         search_probe: Callable[[], SearchResult],
         openai_probe: Callable[[], DependencyResult],
+        cosmos_probe: Callable[[], DependencyResult] | None = None,
         *,
         timeout_seconds: float = 5,
         cache_seconds: float = 30,
@@ -151,13 +155,14 @@ class ReadinessService:
     ):
         self._search_probe = search_probe
         self._openai_probe = openai_probe
+        self._cosmos_probe = cosmos_probe or (lambda: None)
         self._timeout = timeout_seconds
         self._cache_seconds = cache_seconds
         self._clock = clock
         self._cached: tuple[float, ReadinessResult] | None = None
         self._lock = Lock()
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="readiness")
-        self._inflight: tuple[float, Future[Any], Future[Any]] | None = None
+        self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="readiness")
+        self._inflight: tuple[float, Future[Any], Future[Any], Future[Any]] | None = None
 
     def close(self) -> None:
         self._executor.shutdown(wait=False, cancel_futures=True)
@@ -172,30 +177,33 @@ class ReadinessService:
                     now,
                     self._executor.submit(self._search_probe),
                     self._executor.submit(self._openai_probe),
+                    self._executor.submit(self._cosmos_probe),
                 )
             inflight = self._inflight
 
-        started_at, search_future, openai_future = inflight
+        started_at, search_future, openai_future, cosmos_future = inflight
         remaining = max(0.0, self._timeout - (self._clock() - started_at))
-        done, _ = wait({search_future, openai_future}, timeout=remaining)
+        done, _ = wait({search_future, openai_future, cosmos_future}, timeout=remaining)
         search = self._search_result(search_future, done)
         openai = self._dependency_result(openai_future, done)
-        result = self._aggregate(search, openai)
+        cosmos = self._optional_dependency_result(cosmos_future, done)
+        result = self._aggregate(search, openai, cosmos)
 
         with self._lock:
             if self._inflight is inflight:
                 # A result produced after the deadline is intentionally never
                 # promoted to healthy cache state by a background completion.
                 self._cached = (self._clock(), result)
-                if len(done) == 2:
+                if len(done) == 3:
                     self._inflight = None
         return result
 
     @staticmethod
-    def _aggregate(search: SearchResult, openai: DependencyResult) -> ReadinessResult:
+    def _aggregate(search: SearchResult, openai: DependencyResult, cosmos: DependencyResult | None = None) -> ReadinessResult:
         unavailable = (
             search.status == "unavailable"
             or openai.status == "unavailable"
+            or (cosmos is not None and cosmos.status == "unavailable")
             or not search.document_count
         )
         if unavailable:
@@ -207,7 +215,21 @@ class ReadinessService:
         else:
             status = "ready"
             http_status = 200
-        return ReadinessResult(status, search, openai, http_status)
+        return ReadinessResult(status, search, openai, http_status, cosmos)
+
+    @staticmethod
+    def _optional_dependency_result(future: Future[Any], done: set[Future[Any]]) -> DependencyResult | None:
+        if future not in done:
+            return DependencyResult(status="unavailable", error="probe timed out")
+        try:
+            result = future.result()
+            if result is None:
+                return None
+            if not isinstance(result, DependencyResult):
+                raise TypeError("invalid probe result")
+            return result
+        except Exception as exc:
+            return DependencyResult(status="unavailable", error=sanitize_error(exc))
 
     @staticmethod
     def _search_result(future: Future[Any], done: set[Future[Any]]) -> SearchResult:
