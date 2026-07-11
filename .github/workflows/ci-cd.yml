@@ -156,7 +156,11 @@ jobs:
 
   release:
     name: Release production
+    # Skipped validate jobs would make the implicit success() false, so gate
+    # the release on the CI gate's result explicitly.
     if: >-
+      !cancelled() &&
+      needs.gate.result == 'success' &&
       github.event_name != 'pull_request' &&
       (needs.changes.outputs.deploy_api == 'true' ||
        needs.changes.outputs.deploy_ui == 'true' ||
