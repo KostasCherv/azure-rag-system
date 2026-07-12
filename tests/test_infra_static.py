@@ -161,7 +161,15 @@ def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
 def test_routes_and_standard_v2_apim_are_deployed() -> None:
     apim = read("infra/modules/apim.bicep")
     service = read("infra/modules/apim-service.bicep")
-    for route in ("agui", "ready", "corpus-list", "corpus-upload", "corpus-run", "corpus-status"):
+    for route in (
+        "agui",
+        "ready",
+        "corpus-list",
+        "corpus-upload",
+        "corpus-run",
+        "corpus-status",
+        "corpus-suggestions",
+    ):
         assert f"name: '{route}'" in apim
     assert "StandardV2" in service
     assert "virtualNetworkType: 'External'" in service
