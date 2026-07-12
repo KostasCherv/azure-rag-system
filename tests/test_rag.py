@@ -462,6 +462,67 @@ def test_retrieve_applies_source_title_filter():
     assert session.calls[0]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null) and search.ismatch('Tesla Powerwall', 'title')"
 
 
+def test_retrieve_retries_without_source_filter_when_scoped_search_is_empty():
+    class ScopedSession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, _url, **kwargs):
+            self.calls.append(kwargs)
+            scoped = "ismatch" in kwargs["json"]["filter"]
+
+            class Response:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    if scoped:
+                        return {"value": []}
+                    return {
+                        "value": [
+                            {
+                                "title": "Design_Machine_Learning_Systems.pdf",
+                                "chunk": "text",
+                                "source_path": "doc.pdf",
+                                "@search.rerankerScore": 2.6,
+                            }
+                        ]
+                    }
+
+            return Response()
+
+    session = ScopedSession()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+    chunks = service.retrieve(
+        "key points", user_id="user-a", source="Design_Machine_Learning_Systems"
+    )
+
+    assert len(session.calls) == 2
+    assert "ismatch" in session.calls[0]["json"]["filter"]
+    assert session.calls[1]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null)"
+    assert len(chunks) == 1
+    assert chunks[0].title == "Design_Machine_Learning_Systems.pdf"
+
+
+def test_retrieve_does_not_retry_when_scoped_search_returns_chunks():
+    session = FakeSession()
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+    chunks = service.retrieve("battery", user_id="user-a", source="Tesla Powerwall")
+
+    assert len(session.calls) == 1
+    assert len(chunks) == 1
+
+
 def test_retrieve_escapes_single_quotes_in_source_filter():
     class FilterResponse:
         def raise_for_status(self):
