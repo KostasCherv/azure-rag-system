@@ -54,34 +54,53 @@ const responsePromise = page.waitForResponse(
   { timeout: 45_000 },
 );
 await suggestion.click();
-const response = await responsePromise;
-if (!response.ok()) {
-  throw new Error(
-    `CopilotKit request failed with HTTP ${response.status()} ${response.statusText()}`,
-  );
-}
-await page.waitForTimeout(1200);
-await shot("02-chat-question.png");
-
-console.log("Waiting for grounded answer…");
-const responseError = await response.finished();
-if (responseError) {
-  throw new Error(
-    `CopilotKit response body failed after HTTP ${response.status()}: ${responseError.message}`,
-    { cause: responseError },
-  );
-}
-const completedAnswer = assistantMessages.nth(existingAssistantMessageCount);
+const failurePath = path.join(outDir, "chat-answer-failure.png");
 try {
+  const response = await responsePromise;
+  if (!response.ok()) {
+    throw new Error(
+      `CopilotKit request failed with HTTP ${response.status()} ${response.statusText()}`,
+    );
+  }
+  await page.waitForTimeout(1200);
+  await shot("02-chat-question.png");
+
+  console.log("Waiting for grounded answer…");
+  let streamTimeout;
+  let responseError;
+  try {
+    responseError = await Promise.race([
+      response.finished(),
+      new Promise((_, reject) => {
+        streamTimeout = setTimeout(
+          () => reject(new Error("CopilotKit response stream timed out after 45 seconds")),
+          45_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(streamTimeout);
+  }
+  if (responseError) {
+    throw new Error(
+      `CopilotKit response body failed after HTTP ${response.status()}: ${responseError.message}`,
+      { cause: responseError },
+    );
+  }
+  const completedAnswer = assistantMessages.nth(existingAssistantMessageCount);
   await completedAnswer.waitFor({ state: "visible", timeout: 15_000 });
   await completedAnswer
     .locator('[data-testid="copilot-assistant-toolbar"]')
     .waitFor({ state: "visible", timeout: 15_000 });
 } catch (error) {
-  const failurePath = path.join(outDir, "chat-answer-failure.png");
-  await page.screenshot({ path: failurePath, type: "png", fullPage: true });
+  let diagnostic = `saved ${failurePath}`;
+  try {
+    await page.screenshot({ path: failurePath, type: "png", fullPage: true });
+  } catch (screenshotError) {
+    diagnostic = `failed to save ${failurePath}: ${screenshotError.message}`;
+  }
   throw new Error(
-    `Timed out waiting for a completed CopilotKit assistant message after HTTP ${response.status()}; saved ${failurePath}`,
+    `${error.message}; ${diagnostic}`,
     { cause: error },
   );
 }
