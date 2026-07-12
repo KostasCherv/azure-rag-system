@@ -453,6 +453,8 @@ summary:focus-visible {
 }
 
 .citation-item {
+  /* grid items default to min-width:auto, letting the nowrap snippet blow past the panel */
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   background: var(--surface);
