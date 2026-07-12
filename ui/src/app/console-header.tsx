@@ -35,12 +35,6 @@ export function ConsoleHeader({ title, variant, principal = null, activePage }: 
             <Link className="nav-link" href="/corpus" aria-current={activePage === "corpus" ? "page" : undefined}>
               Corpus
             </Link>
-            {principal ? (
-              <span className="user-strip">
-                {principal.name}
-                <a className="nav-link" href="/.auth/logout">Sign out</a>
-              </span>
-            ) : null}
           </>
         ) : (
           <Link className="nav-link nav-link-back" href="/">
@@ -48,6 +42,12 @@ export function ConsoleHeader({ title, variant, principal = null, activePage }: 
             Back to chat
           </Link>
         )}
+        {principal ? (
+          <span className="user-strip">
+            {principal.name}
+            <a className="nav-link" href="/.auth/logout">Sign out</a>
+          </span>
+        ) : null}
       </nav>
     </header>
   );

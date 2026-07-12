@@ -44,7 +44,7 @@ The UI uses its system-assigned identity through `DefaultAzureCredential`. Confi
 
 Create a web app registration for human users of the public UI. Do not create a client secret.
 
-1. Add a redirect URI of `https://<ui-fqdn>/.auth/login/aad/callback`, where `<ui-fqdn>` is the deployed UI Container App hostname from the `uiUrl` output.
+1. Add redirect URIs of `https://<ui-fqdn>/.auth/login/aad/callback` and `https://<ui-fqdn>/.auth/logout/complete` (the latter lets Entra redirect back to the signed-out page after `/.auth/logout`), where `<ui-fqdn>` is the deployed UI Container App hostname from the `uiUrl` output.
 2. Add a federated identity credential on that app registration for the UI Container App's system-assigned managed identity. Use the UI app's Entra object ID (`uiPrincipalId` output) as the subject and `api://AzureADTokenExchange` as the audience so Easy Auth can authenticate without a secret.
 3. Pass the app registration's application (client) ID as `uiUserAuthClientId` in the parameter file.
 

@@ -119,6 +119,7 @@ def test_entra_automation_scripts_cover_pre_and_post_deploy_auth() -> None:
         "federated-credential create",
         "api://AzureADTokenExchange",
         ".auth/login/aad/callback",
+        ".auth/logout/complete",
         "appRoleAssignments",
         "uiPrincipalId",
         "apimPrincipalId",
