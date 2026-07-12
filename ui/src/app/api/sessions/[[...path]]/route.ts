@@ -29,9 +29,10 @@ async function proxy(request: NextRequest, context: RouteContext) {
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
       cache: "no-store",
     });
+    if (response.status === 204) return new Response(null, { status: 204 });
     return new Response(await response.text(), {
       status: response.status,
-      headers: response.status === 204 ? undefined : { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
     });
   } catch {
     return Response.json({ detail: "session persistence unavailable" }, { status: 503 });
