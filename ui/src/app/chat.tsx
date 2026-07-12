@@ -1,6 +1,5 @@
 "use client";
 
-import { useCopilotContext } from "@copilotkit/react-core";
 import { CopilotChat, useAgent, UseAgentUpdate } from "@copilotkit/react-core/v2";
 import { Check, MessageSquarePlus, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -43,7 +42,6 @@ function ChatDriver({ session, onSaved, onConflict, onSaveFailed }: {
   onConflict: () => void;
   onSaveFailed: (retry: () => void) => void;
 }) {
-  const { setThreadId } = useCopilotContext();
   const { agent } = useAgent({
     agentId: "default",
     updates: [UseAgentUpdate.OnMessagesChanged, UseAgentUpdate.OnRunStatusChanged],
@@ -73,21 +71,25 @@ function ChatDriver({ session, onSaved, onConflict, onSaveFailed }: {
     });
   }, [onConflict, onSaveFailed, onSaved, session]);
 
-  useEffect(() => setThreadId(session.id), [session.id, setThreadId]);
-
+  // We own thread restore: our runtime is a stateless AG-UI proxy, so passing an
+  // explicit threadId to CopilotChat would make connectAgent wipe the messages
+  // and replay from a server-side thread store that does not exist here.
+  // eslint-disable-next-line react-hooks/immutability -- AbstractAgent is intentionally mutable; CopilotChat assigns threadId the same way
   useEffect(() => {
-    if (agent.threadId === session.id && loadedId.current !== session.id) {
-      agent.setMessages(session.messages as never[]);
-      loadedId.current = session.id;
-      previousRunning.current = agent.isRunning;
-    }
-  }, [agent, agent.threadId, session.id, session.messages]);
+    if (loadedId.current === session.id) return;
+    // eslint-disable-next-line react-hooks/immutability
+    agent.threadId = session.id;
+    agent.setMessages(session.messages as never[]);
+    loadedId.current = session.id;
+    previousRunning.current = agent.isRunning;
+  }, [agent, session.id, session.messages]);
 
   useEffect(() => {
     const finished = previousRunning.current && !agent.isRunning;
     previousRunning.current = agent.isRunning;
     if (!finished) return;
     const messages = structuredClone(agent.messages) as Record<string, unknown>[];
+    if (messages.length === 0) return; // never overwrite saved history with an empty snapshot
     persist(messages);
   }, [agent.isRunning, agent.messages, persist]);
 
@@ -95,7 +97,6 @@ function ChatDriver({ session, onSaved, onConflict, onSaveFailed }: {
     <CopilotChat
       key={session.id}
       agentId="default"
-      threadId={session.id}
       welcomeScreen
       labels={{
         modalHeaderTitle: "RAG assistant",
