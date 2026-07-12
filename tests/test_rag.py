@@ -86,11 +86,13 @@ class CapturingSpan:
 class CapturingTracer:
     def __init__(self):
         self.spans = []
+        self.span_kwargs = []
 
-    def start_as_current_span(self, name):
+    def start_as_current_span(self, name, **kwargs):
         span = CapturingSpan()
         span.name = name
         self.spans.append(span)
+        self.span_kwargs.append(kwargs)
         return span
 
 
@@ -201,6 +203,7 @@ def test_list_visible_titles_records_privacy_safe_telemetry(monkeypatch):
 
     span = tracer.spans[0]
     assert span.name == "rag.suggestions"
+    assert tracer.span_kwargs == [{"record_exception": False}]
     assert span.attributes["azure.search.index"] == "rag-index"
     assert span.attributes["rag.suggestions.top"] == 7
     assert span.attributes["rag.suggestions.raw_hit_count"] == 1

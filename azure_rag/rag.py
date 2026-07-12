@@ -85,7 +85,7 @@ class RagService:
         if validate_user_id(user_id) is None:
             raise ValueError("invalid user id")
         started = perf_counter()
-        with tracer.start_as_current_span("rag.suggestions") as span:
+        with tracer.start_as_current_span("rag.suggestions", record_exception=False) as span:
             span.set_attribute("azure.search.index", self.config.search_index)
             span.set_attribute("rag.suggestions.top", top)
             span.set_attribute("rag.suggestions.raw_hit_count", 0)
