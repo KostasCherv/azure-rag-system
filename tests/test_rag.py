@@ -246,6 +246,46 @@ def test_list_visible_titles_records_error_without_sensitive_telemetry(monkeypat
     assert "user-a" not in repr(span.attributes)
 
 
+def test_list_visible_titles_rejects_malformed_search_responses(monkeypatch):
+    import pytest
+
+    class MalformedResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    class MalformedSession:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def post(self, *_args, **_kwargs):
+            return MalformedResponse(self.payload)
+
+    for payload in ({"value": "secret-title"}, ["secret-title"]):
+        tracer = CapturingTracer()
+        monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+        service = RagService(
+            config(),
+            credential=FakeCredential(),
+            openai_client=FakeOpenAIClient(),
+            session=MalformedSession(payload),
+        )
+
+        with pytest.raises(ValueError, match="^invalid Azure Search response$") as error:
+            service.list_visible_titles(user_id="user-a")
+
+        span = tracer.spans[0]
+        assert str(error.value) == "invalid Azure Search response"
+        assert span.attributes["rag.suggestions.outcome"] == "error"
+        assert span.exceptions == [error.value]
+        assert "secret-title" not in repr(span.attributes)
+
+
 def test_rag_service_uses_injected_openai_client_and_search_bearer_token():
     credential = FakeCredential()
     session = FakeSession()

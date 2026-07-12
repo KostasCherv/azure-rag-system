@@ -110,9 +110,10 @@ class RagService:
                     timeout=30,
                 )
                 response.raise_for_status()
-                values = response.json().get("value", [])
-                if not isinstance(values, list):
-                    values = []
+                payload = response.json()
+                if not isinstance(payload, dict) or not isinstance(payload.get("value"), list):
+                    raise ValueError("invalid Azure Search response")
+                values = payload["value"]
                 titles = dedupe_titles(
                     [
                         item["title"]
