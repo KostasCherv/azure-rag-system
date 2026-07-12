@@ -17,6 +17,7 @@ from .search_pipeline import (
     run_indexer,
     upload_document,
 )
+from .suggestions import ChatSuggestion, build_suggestion_items
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".md"}
@@ -46,6 +47,26 @@ def _indexer_payload(result: IndexerResult) -> dict[str, Any]:
         "ended_at": result.ended_at,
         "error": result.error,
     }
+
+
+@router.get("/suggestions")
+def list_corpus_suggestions(
+    request: Request, x_rag_user_id: str | None = Header(None)
+) -> list[ChatSuggestion]:
+    rag = request.app.state.rag
+    try:
+        user_id = resolve_user_id(request, x_rag_user_id)
+        titles = rag.list_visible_titles(user_id=user_id)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="user identity required") from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=sanitize_error(exc, "failed to load suggestions"),
+        ) from exc
+    return build_suggestion_items(titles)
 
 
 @router.get("/documents")

@@ -25,9 +25,18 @@ class FakeRagService:
         self.credential = object()
         self.session = object()
         self.closed = False
+        self.suggestion_titles = ["Shared Guide", "User Manual"]
+        self.suggestion_error = None
+        self.last_suggestion_user_id = None
 
     def close(self):
         self.closed = True
+
+    def list_visible_titles(self, *, user_id):
+        self.last_suggestion_user_id = user_id
+        if self.suggestion_error is not None:
+            raise self.suggestion_error
+        return self.suggestion_titles
 
 
 def test_sanitize_filename_accepts_safe_names_and_rejects_unsafe():
@@ -85,6 +94,79 @@ def test_corpus_documents_fail_closed_without_identity(monkeypatch):
         )
         assert client.delete("/corpus/documents/guide.md").status_code == 401
         assert client.get("/corpus/documents", headers={"X-RAG-User-ID": "bad id!"}).status_code == 401
+
+
+def test_corpus_suggestions_returns_deterministic_items_for_user():
+    rag = FakeRagService()
+    app = create_app(config=config(), rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions", headers={"X-RAG-User-ID": "user-a"})
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "title": "Ask about Shared Guide",
+            "message": "What are the key points in Shared Guide?",
+        },
+        {
+            "title": "Ask about User Manual",
+            "message": "What are the key points in User Manual?",
+        },
+    ]
+    assert rag.last_suggestion_user_id == "user-a"
+
+
+def test_corpus_suggestions_returns_empty_list_without_visible_titles():
+    rag = FakeRagService()
+    rag.suggestion_titles = []
+    app = create_app(config=config(), rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions", headers={"X-RAG-User-ID": "user-a"})
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_corpus_suggestions_requires_identity_without_calling_service():
+    from dataclasses import replace
+
+    no_fallback = replace(config(), session_local_user_id=None)
+    rag = FakeRagService()
+    rag.config = no_fallback
+    app = create_app(config=no_fallback, rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "user identity required"
+    assert rag.last_suggestion_user_id is None
+
+
+def test_corpus_suggestions_rejects_invalid_identity_without_calling_service():
+    rag = FakeRagService()
+    app = create_app(config=config(), rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions", headers={"X-RAG-User-ID": "bad id!"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "user identity required"
+    assert rag.last_suggestion_user_id is None
+
+
+def test_corpus_suggestions_maps_azure_failures_to_sanitized_errors():
+    rag = FakeRagService()
+    rag.suggestion_error = AzureSearchError("POST failed: 403 forbidden secret")
+    app = create_app(config=config(), rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions", headers={"X-RAG-User-ID": "user-a"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "authorization failed"
 
 
 def test_corpus_upload_rejects_large_files(monkeypatch):
