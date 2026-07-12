@@ -93,22 +93,42 @@ export function CorpusPanel() {
     return () => window.clearInterval(timer);
   }, [indexer.status, refreshCorpus]);
 
-  const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    setMessage(null);
+  const uploadOne = async (file: File): Promise<string | null> => {
     try {
       const form = new FormData();
       form.append("file", file);
       const response = await fetch("/api/corpus/documents", { method: "POST", body: form });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(typeof body.detail === "string" ? body.detail : "upload failed");
+        return `${file.name}: ${typeof body.detail === "string" ? body.detail : "upload failed"}`;
       }
-      await refreshDocuments();
-      setMessage(`Uploaded ${file.name}.`);
+      return null;
+    } catch {
+      return `${file.name}: upload failed`;
+    }
+  };
+
+  const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+    setUploading(true);
+    setMessage(null);
+    try {
+      // ponytail: fire all uploads at once; the browser's per-host connection
+      // pool is the concurrency limit. Batch client-side if file counts grow huge.
+      const failures = (await Promise.all(files.map(uploadOne))).filter((f): f is string => f !== null);
+      const uploaded = files.length - failures.length;
+      const parts: string[] = [];
+      if (uploaded > 0) {
+        parts.push(files.length === 1 ? `Uploaded ${files[0].name}.` : `Uploaded ${uploaded} of ${files.length} documents.`);
+        const indexerResponse = await fetch("/api/corpus/indexer", { method: "POST" }).catch(() => null);
+        if (indexerResponse?.ok) parts.push("Indexing started.");
+        else if (indexerResponse?.status === 409) parts.push("Indexer already running.");
+      }
+      parts.push(...failures);
+      await refreshCorpus();
+      setMessage(parts.join(" "));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "upload failed");
     } finally {
@@ -156,8 +176,8 @@ export function CorpusPanel() {
     <section className="corpus-panel">
       <div className="corpus-actions">
         <label className="corpus-btn corpus-btn-primary corpus-upload">
-          <input type="file" accept=".pdf,.md" onChange={onUpload} disabled={uploading} />
-          {uploading ? "Uploading..." : "Upload document"}
+          <input type="file" accept=".pdf,.md" multiple onChange={onUpload} disabled={uploading} />
+          {uploading ? "Uploading..." : "Upload documents"}
         </label>
         <button
           type="button"
