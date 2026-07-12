@@ -133,13 +133,17 @@ describe("SuggestedQuestions", () => {
     expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
   });
 
-  it("aborts an in-flight request on unmount", () => {
+  it("aborts an in-flight request and ignores its response after unmount", async () => {
     let signal: AbortSignal | undefined;
+    let resolveFetch!: (response: Response) => void;
+    const pendingResponse = new Promise<Response>((resolve) => {
+      resolveFetch = resolve;
+    });
     vi.stubGlobal(
       "fetch",
       vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
         signal = init?.signal ?? undefined;
-        return new Promise<Response>(() => {});
+        return pendingResponse;
       }),
     );
 
@@ -147,7 +151,23 @@ describe("SuggestedQuestions", () => {
 
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal?.aborted).toBe(false);
+    const hookCallCount = useConfigureSuggestions.mock.calls.length;
+
     unmount();
     expect(signal?.aborted).toBe(true);
+
+    await act(async () => {
+      resolveFetch(
+        new Response(JSON.stringify(suggestions), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await pendingResponse;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(useConfigureSuggestions).toHaveBeenCalledTimes(hookCallCount);
   });
 });
