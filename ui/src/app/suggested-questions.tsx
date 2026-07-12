@@ -1,31 +1,62 @@
 "use client";
 
 import { useConfigureSuggestions } from "@copilotkit/react-core/v2";
+import { useEffect, useState } from "react";
 
-const SUGGESTIONS = [
-  {
-    title: "How do I install the Tesla Powerwall 3?",
-    message: "How do I install the Tesla Powerwall 3?",
-  },
-  {
-    title: "How do I clean the Dyson V10 filter?",
-    message: "How do I clean the Dyson V10 filter?",
-  },
-  {
-    title: "What are the specs of the Ecobee Smart Thermostat Lite?",
-    message: "What are the specs of the Ecobee Smart Thermostat Lite?",
-  },
-  {
-    title: "Compare the Hive and Ecobee smart thermostats",
-    message: "Compare the Hive and Ecobee smart thermostats",
-  },
-] as const;
-
-const SUGGESTIONS_CONFIG = {
-  suggestions: [...SUGGESTIONS],
+type Suggestion = {
+  title: string;
+  message: string;
 };
 
+function isSuggestionArray(value: unknown): value is Suggestion[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 4 &&
+    value.every(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        typeof (item as Record<string, unknown>).title === "string" &&
+        (item as Record<string, string>).title.trim().length > 0 &&
+        typeof (item as Record<string, unknown>).message === "string" &&
+        (item as Record<string, string>).message.trim().length > 0,
+    )
+  );
+}
+
 export function SuggestedQuestions() {
-  useConfigureSuggestions(SUGGESTIONS_CONFIG);
+  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function loadSuggestions() {
+      try {
+        const response = await fetch("/api/corpus/suggestions", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+
+        const payload: unknown = await response.json();
+        if (!controller.signal.aborted && isSuggestionArray(payload)) {
+          setSuggestions(payload);
+        }
+      } catch {
+        // Suggestions are optional; keep chat available when loading fails.
+      }
+    }
+
+    void loadSuggestions();
+    return () => controller.abort();
+  }, []);
+
+  useConfigureSuggestions(
+    suggestions === null
+      ? null
+      : { suggestions, available: "before-first-message" },
+    [suggestions],
+  );
+
   return null;
 }
