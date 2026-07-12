@@ -86,11 +86,13 @@ class CapturingSpan:
 class CapturingTracer:
     def __init__(self):
         self.spans = []
+        self.span_kwargs = []
 
-    def start_as_current_span(self, name):
+    def start_as_current_span(self, name, **kwargs):
         span = CapturingSpan()
         span.name = name
         self.spans.append(span)
+        self.span_kwargs.append(kwargs)
         return span
 
 
@@ -100,6 +102,191 @@ class FakeLangSmithRun:
 
     def end(self, **kwargs):
         self.calls.append({"ended": kwargs})
+
+
+def test_list_visible_titles_queries_search_and_normalizes_titles():
+    class TitleResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "value": [
+                    {"title": "  Zebra   Guide "},
+                    {"title": "alpha manual"},
+                    {"title": "ALPHA MANUAL"},
+                    {"title": "   "},
+                    {"title": ""},
+                    {"title": None},
+                    {"title": 42},
+                    "not-a-document",
+                ]
+            }
+
+    class TitleSession:
+        def __init__(self):
+            self.calls = []
+
+        def post(self, url, **kwargs):
+            self.calls.append((url, kwargs))
+            return TitleResponse()
+
+    credential = FakeCredential()
+    session = TitleSession()
+    service = RagService(
+        config(),
+        credential=credential,
+        openai_client=FakeOpenAIClient(),
+        session=session,
+    )
+
+    titles = service.list_visible_titles(user_id="user-a")
+
+    assert titles == ["alpha manual", "Zebra Guide"]
+    assert session.calls == [
+        (
+            "https://example.search.windows.net/indexes/rag-index/docs/search?api-version=2026-05-01-preview",
+            {
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer search-token",
+                },
+                "json": {
+                    "search": "*",
+                    "filter": "(user_id eq 'user-a' or user_id eq null)",
+                    "select": "title",
+                    "top": 100,
+                },
+                "timeout": 30,
+            },
+        )
+    ]
+    assert credential.scopes == [(AZURE_SEARCH_SCOPE,)]
+
+
+def test_list_visible_titles_rejects_invalid_user_id():
+    import pytest
+
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=FakeSession(),
+    )
+
+    with pytest.raises(ValueError, match="^invalid user id$"):
+        service.list_visible_titles(user_id="bad'id")
+
+
+def test_list_visible_titles_records_privacy_safe_telemetry(monkeypatch):
+    class TitleResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"value": [{"title": "Private Manual"}]}
+
+    class TitleSession:
+        def post(self, *_args, **_kwargs):
+            return TitleResponse()
+
+    tracer = CapturingTracer()
+    monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=TitleSession(),
+    )
+
+    assert service.list_visible_titles(user_id="user-a", top=7) == ["Private Manual"]
+
+    span = tracer.spans[0]
+    assert span.name == "rag.suggestions"
+    assert tracer.span_kwargs == [{"record_exception": False}]
+    assert span.attributes["azure.search.index"] == "rag-index"
+    assert span.attributes["rag.suggestions.top"] == 7
+    assert span.attributes["rag.suggestions.raw_hit_count"] == 1
+    assert span.attributes["rag.suggestions.result_count"] == 1
+    assert span.attributes["rag.suggestions.outcome"] == "success"
+    assert span.attributes["rag.suggestions.duration_ms"] >= 0
+    assert set(span.attributes) == {
+        "azure.search.index",
+        "rag.suggestions.top",
+        "rag.suggestions.raw_hit_count",
+        "rag.suggestions.result_count",
+        "rag.suggestions.outcome",
+        "rag.suggestions.duration_ms",
+    }
+    assert "user-a" not in repr(span.attributes)
+    assert "Private Manual" not in repr(span.attributes)
+
+
+def test_list_visible_titles_records_error_without_sensitive_telemetry(monkeypatch):
+    import pytest
+
+    class FailingSession:
+        def post(self, *_args, **_kwargs):
+            raise RuntimeError("search failed")
+
+    tracer = CapturingTracer()
+    monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+    service = RagService(
+        config(),
+        credential=FakeCredential(),
+        openai_client=FakeOpenAIClient(),
+        session=FailingSession(),
+    )
+
+    with pytest.raises(RuntimeError, match="search failed"):
+        service.list_visible_titles(user_id="user-a")
+
+    span = tracer.spans[0]
+    assert span.attributes["rag.suggestions.raw_hit_count"] == 0
+    assert span.attributes["rag.suggestions.result_count"] == 0
+    assert span.attributes["rag.suggestions.outcome"] == "error"
+    assert span.exceptions
+    assert "user-a" not in repr(span.attributes)
+
+
+def test_list_visible_titles_rejects_malformed_search_responses(monkeypatch):
+    import pytest
+
+    class MalformedResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    class MalformedSession:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def post(self, *_args, **_kwargs):
+            return MalformedResponse(self.payload)
+
+    for payload in ({"value": "secret-title"}, ["secret-title"]):
+        tracer = CapturingTracer()
+        monkeypatch.setattr("azure_rag.rag.tracer", tracer)
+        service = RagService(
+            config(),
+            credential=FakeCredential(),
+            openai_client=FakeOpenAIClient(),
+            session=MalformedSession(payload),
+        )
+
+        with pytest.raises(ValueError, match="^invalid Azure Search response$") as error:
+            service.list_visible_titles(user_id="user-a")
+
+        span = tracer.spans[0]
+        assert str(error.value) == "invalid Azure Search response"
+        assert span.attributes["rag.suggestions.outcome"] == "error"
+        assert span.exceptions == [error.value]
+        assert "secret-title" not in repr(span.attributes)
 
 
 def test_rag_service_uses_injected_openai_client_and_search_bearer_token():

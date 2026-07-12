@@ -42,15 +42,68 @@ await waitForReady();
 await shot("01-chat-ready.png");
 
 console.log("Asking a suggested question…");
-await page.getByText("How do I clean the Dyson V10 filter?").click();
-await page.waitForTimeout(1200);
-await shot("02-chat-question.png");
+const suggestion = page.locator('[data-testid="copilot-suggestion"]').first();
+const assistantMessages = page.locator('[data-testid="copilot-assistant-message"]');
+const existingAssistantMessageCount = await assistantMessages.count();
+await suggestion.waitFor({ timeout: 15_000 });
+const responsePromise = page.waitForResponse(
+  (response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname === "/api/copilotkit";
+  },
+  { timeout: 45_000 },
+);
+await suggestion.click();
+const failurePath = path.join(outDir, "chat-answer-failure.png");
+try {
+  const response = await responsePromise;
+  if (!response.ok()) {
+    throw new Error(
+      `CopilotKit request failed with HTTP ${response.status()} ${response.statusText()}`,
+    );
+  }
+  await page.waitForTimeout(1200);
+  await shot("02-chat-question.png");
 
-console.log("Waiting for grounded answer…");
-await page
-  .getByText(/clean|filter|wash|rinse/i)
-  .first()
-  .waitFor({ timeout: 45_000 });
+  console.log("Waiting for grounded answer…");
+  let streamTimeout;
+  let responseError;
+  try {
+    responseError = await Promise.race([
+      response.finished(),
+      new Promise((_, reject) => {
+        streamTimeout = setTimeout(
+          () => reject(new Error("CopilotKit response stream timed out after 45 seconds")),
+          45_000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(streamTimeout);
+  }
+  if (responseError) {
+    throw new Error(
+      `CopilotKit response body failed after HTTP ${response.status()}: ${responseError.message}`,
+      { cause: responseError },
+    );
+  }
+  const completedAnswer = assistantMessages.nth(existingAssistantMessageCount);
+  await completedAnswer.waitFor({ state: "visible", timeout: 15_000 });
+  await completedAnswer
+    .locator('[data-testid="copilot-assistant-toolbar"]')
+    .waitFor({ state: "visible", timeout: 15_000 });
+} catch (error) {
+  let diagnostic = `saved ${failurePath}`;
+  try {
+    await page.screenshot({ path: failurePath, type: "png", fullPage: true });
+  } catch (screenshotError) {
+    diagnostic = `failed to save ${failurePath}: ${screenshotError.message}`;
+  }
+  throw new Error(
+    `${error.message}; ${diagnostic}`,
+    { cause: error },
+  );
+}
 await page.waitForTimeout(1500);
 await shot("03-chat-answer.png");
 

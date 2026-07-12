@@ -29,7 +29,7 @@
       </when>
     </choose>
     <choose>
-      <when condition="@(context.Operation.Id == &quot;agui&quot; || context.Operation.Id == &quot;corpus-upload&quot; || context.Operation.Id == &quot;corpus-run&quot;)">
+      <when condition="@(context.Operation.Id == &quot;agui&quot; || context.Operation.Id == &quot;corpus-upload&quot; || context.Operation.Id == &quot;corpus-run&quot; || context.Operation.Id == &quot;corpus-suggestions&quot;)">
         <rate-limit-by-key calls="30" renewal-period="60" counter-key="@((string)context.Variables[&quot;callerKey&quot;])" retry-after-header-name="Retry-After" />
         <quota-by-key calls="500" renewal-period="86400" counter-key="@((string)context.Variables[&quot;callerKey&quot;])" />
       </when>
