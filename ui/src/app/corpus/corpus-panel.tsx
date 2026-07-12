@@ -45,17 +45,21 @@ export function CorpusPanel() {
     setIndexer(await response.json());
   }, []);
 
+  const refreshCorpus = useCallback(async () => {
+    await Promise.all([refreshDocuments(), refreshIndexer()]);
+  }, [refreshDocuments, refreshIndexer]);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([refreshDocuments(), refreshIndexer()]);
+      await refreshCorpus();
       setMessage(null);
     } catch {
       setMessage("Unable to load corpus data.");
     } finally {
       setLoading(false);
     }
-  }, [refreshDocuments, refreshIndexer]);
+  }, [refreshCorpus]);
 
   useEffect(() => {
     let active = true;
@@ -85,9 +89,9 @@ export function CorpusPanel() {
 
   useEffect(() => {
     if (indexer.status !== "running") return;
-    const timer = window.setInterval(() => { void refreshIndexer(); }, 5000);
+    const timer = window.setInterval(() => { void refreshCorpus(); }, 5000);
     return () => window.clearInterval(timer);
-  }, [indexer.status, refreshIndexer]);
+  }, [indexer.status, refreshCorpus]);
 
   const onUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -119,7 +123,7 @@ export function CorpusPanel() {
       const response = await fetch("/api/corpus/indexer", { method: "POST" });
       if (response.status === 409) throw new Error("Indexer is already running.");
       if (!response.ok) throw new Error("failed to start indexer");
-      await refreshIndexer();
+      await refreshCorpus();
       setMessage("Indexer run started.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "failed to start indexer");
