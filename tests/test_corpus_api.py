@@ -169,6 +169,18 @@ def test_corpus_suggestions_maps_azure_failures_to_sanitized_errors():
     assert response.json()["detail"] == "authorization failed"
 
 
+def test_corpus_suggestions_maps_malformed_responses_to_upstream_failure():
+    rag = FakeRagService()
+    rag.suggestion_error = ValueError("invalid Azure Search response")
+    app = create_app(config=config(), rag_service=rag, register_agui=False)
+
+    with TestClient(app) as client:
+        response = client.get("/corpus/suggestions", headers={"X-RAG-User-ID": "user-a"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "failed to load suggestions"
+
+
 def test_corpus_upload_rejects_large_files(monkeypatch):
     app = create_app(config=config(), rag_service=FakeRagService(), register_agui=False)
     with TestClient(app) as client:

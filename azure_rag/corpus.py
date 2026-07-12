@@ -54,13 +54,9 @@ def list_corpus_suggestions(
     request: Request, x_rag_user_id: str | None = Header(None)
 ) -> list[ChatSuggestion]:
     rag = request.app.state.rag
+    user_id = resolve_user_id(request, x_rag_user_id)
     try:
-        user_id = resolve_user_id(request, x_rag_user_id)
         titles = rag.list_visible_titles(user_id=user_id)
-    except HTTPException:
-        raise
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail="user identity required") from exc
     except Exception as exc:
         raise HTTPException(
             status_code=503,
