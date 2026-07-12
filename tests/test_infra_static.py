@@ -153,6 +153,7 @@ def test_apim_policy_authenticates_and_limits_expensive_routes() -> None:
     assert "context.Operation.Id == &quot;agui&quot;" in policy
     assert "context.Operation.Id == &quot;corpus-upload&quot;" in policy
     assert "context.Operation.Id == &quot;corpus-run&quot;" in policy
+    assert "context.Operation.Id == &quot;corpus-suggestions&quot;" in policy
     assert "context.Operation.Id == &quot;query&quot;" not in policy
     assert "backendAudience" in policy
     assert "api-key" not in policy.lower()
@@ -168,9 +169,17 @@ def test_routes_and_standard_v2_apim_are_deployed() -> None:
         "corpus-upload",
         "corpus-run",
         "corpus-status",
-        "corpus-suggestions",
     ):
         assert f"name: '{route}'" in apim
+    corpus_suggestions = apim[
+        apim.index("resource corpusSuggestions "):apim.index("resource sessionsList ")
+    ]
+    assert "name: 'corpus-suggestions'" in corpus_suggestions
+    assert "method: 'GET'" in corpus_suggestions
+    assert "urlTemplate: '/corpus/suggestions'" in corpus_suggestions
+    api_policy = apim[apim.index("resource apiPolicy "):]
+    assert "dependsOn:" in api_policy
+    assert "corpusSuggestions" in api_policy
     assert "StandardV2" in service
     assert "virtualNetworkType: 'External'" in service
     assert "developerPortalStatus: 'Disabled'" in service
