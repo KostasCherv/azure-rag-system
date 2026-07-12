@@ -32,21 +32,45 @@ describe("CorpusPanel", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/corpus/documents", expect.objectContaining({ method: "POST" }));
   });
 
-  it("starts the indexer and polls while running", async () => {
+  it("starts the indexer and refreshes corpus while running", async () => {
     vi.useFakeTimers();
-    const fetcher = vi.spyOn(globalThis, "fetch")
-      .mockResolvedValueOnce(new Response(JSON.stringify([])))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "success", started_at: null, ended_at: null, error: null })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "accepted" }), { status: 202 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "running", started_at: "2026-01-01T00:00:00Z", ended_at: null, error: null })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "success", started_at: null, ended_at: "2026-01-01T00:00:00Z", error: null })));
+    let indexerStatus: {
+      status: "success" | "running";
+      started_at: string | null;
+      ended_at: string | null;
+      error: string | null;
+    } = { status: "success", started_at: null, ended_at: null, error: null };
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "/api/corpus/documents" && init?.method === "POST") {
+        return new Response(JSON.stringify({ name: "sample.pdf" }));
+      }
+      if (url === "/api/corpus/documents") {
+        return new Response(JSON.stringify([]));
+      }
+      if (url === "/api/corpus/indexer" && init?.method === "POST") {
+        indexerStatus = { status: "running", started_at: "2026-01-01T00:00:00Z", ended_at: null, error: null };
+        return new Response(JSON.stringify({ status: "accepted" }), { status: 202 });
+      }
+      if (url === "/api/corpus/indexer") {
+        return new Response(JSON.stringify(indexerStatus));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
     render(<CorpusPanel />);
     await act(async () => {});
     await act(async () => { fireEvent.click(screen.getByText("Run indexer")); });
     await act(async () => {});
     expect(fetcher).toHaveBeenCalledWith("/api/corpus/indexer", { method: "POST" });
+    const documentGetsBeforePoll = fetcher.mock.calls.filter(([url, init]) => url === "/api/corpus/documents" && init?.method !== "POST");
+    const indexerGetsBeforePoll = fetcher.mock.calls.filter(([url, init]) => url === "/api/corpus/indexer" && init?.method !== "POST");
+    expect(documentGetsBeforePoll.length).toBeGreaterThan(1);
+    expect(indexerGetsBeforePoll.length).toBeGreaterThan(1);
     await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
-    expect(fetcher.mock.calls.some(([url]) => url === "/api/corpus/indexer" && !("method" in (fetcher.mock.calls.at(-1)?.[1] ?? {})))).toBe(true);
+    const documentGetsAfterPoll = fetcher.mock.calls.filter(([url, init]) => url === "/api/corpus/documents" && init?.method !== "POST");
+    const indexerGetsAfterPoll = fetcher.mock.calls.filter(([url, init]) => url === "/api/corpus/indexer" && init?.method !== "POST");
+    expect(documentGetsAfterPoll.length).toBeGreaterThan(documentGetsBeforePoll.length);
+    expect(indexerGetsAfterPoll.length).toBeGreaterThan(indexerGetsBeforePoll.length);
     vi.useRealTimers();
   });
 });

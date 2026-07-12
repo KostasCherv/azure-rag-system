@@ -75,6 +75,12 @@ resource corpusStatus 'Microsoft.ApiManagement/service/apis/operations@2024-05-0
   properties: { displayName: 'Corpus indexer status', method: 'GET', urlTemplate: '/corpus/indexer' }
 }
 
+resource corpusSuggestions 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'corpus-suggestions'
+  properties: { displayName: 'Corpus suggestions', method: 'GET', urlTemplate: '/corpus/suggestions' }
+}
+
 resource sessionsList 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: api
   name: 'sessions-list'
@@ -122,5 +128,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus, sessionsList, sessionsCreate, sessionGet, sessionUpdate, sessionRename, sessionDelete]
+  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus, corpusSuggestions, sessionsList, sessionsCreate, sessionGet, sessionUpdate, sessionRename, sessionDelete]
 }

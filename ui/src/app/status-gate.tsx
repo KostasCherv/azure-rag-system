@@ -76,9 +76,6 @@ export function StatusGate({ children }: { children: ReactNode }) {
           </span>
         </div>
         <div className="status-group">
-          {status.documentCount !== null ? (
-            <span className="status-chip metric-chip">Docs: {status.documentCount.toLocaleString()}</span>
-          ) : null}
           {showLastIndex ? (
             <span className="status-chip metric-chip">Last index: {lastSuccessTimestamp}</span>
           ) : null}

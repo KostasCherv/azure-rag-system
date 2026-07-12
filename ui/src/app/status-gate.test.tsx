@@ -20,7 +20,6 @@ describe("StatusGate", () => {
     expect(screen.queryByText("chat-ui")).toBeNull();
     await screen.findByText("Connected");
     expect(screen.getByText(/success/)).toBeTruthy();
-    expect(screen.getByText(/Docs: 12/)).toBeTruthy();
     expect(screen.getByText(/Indexer: success/)).toBeTruthy();
     expect(screen.getAllByText(/Jan/).length).toBeGreaterThan(0);
     expect(screen.getByText("chat-ui")).toBeTruthy();
