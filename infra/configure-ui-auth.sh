@@ -59,12 +59,15 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 ui_app_object_id="$(az ad app show --id "$ui_signin_app_id" --query id --output tsv)"
 redirect_uri="${ui_url%/}/.auth/login/aad/callback"
+post_logout_uri="${ui_url%/}/.auth/logout/complete"
 current_ui_app="$(az ad app show --id "$ui_signin_app_id" --output json)"
 redirects_file="${tmp_dir}/redirects.json"
 patch_file="${tmp_dir}/ui-app-patch.json"
 
-jq --arg redirect_uri "$redirect_uri" \
-  '(.web.redirectUris // []) | if index($redirect_uri) then . else . + [$redirect_uri] end' \
+jq --arg redirect_uri "$redirect_uri" --arg post_logout_uri "$post_logout_uri" \
+  '(.web.redirectUris // [])
+    | (if index($redirect_uri) then . else . + [$redirect_uri] end)
+    | (if index($post_logout_uri) then . else . + [$post_logout_uri] end)' \
   <<<"$current_ui_app" > "$redirects_file"
 
 jq -n --slurpfile redirect_uris "$redirects_file" '{
@@ -158,6 +161,7 @@ Configured UI authentication for ${ui_url}.
 
 Updated:
   redirect URI: ${redirect_uri}
+  post-logout redirect URI: ${post_logout_uri}
   federated credential subject: ${ui_principal_id}
   UI managed identity app role assignment to APIM-facing API
   APIM managed identity app role assignment to backend API
