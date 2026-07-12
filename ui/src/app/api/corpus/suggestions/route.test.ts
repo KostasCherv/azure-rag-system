@@ -64,6 +64,18 @@ describe("corpus suggestions route", () => {
     expect(await response.json()).toEqual({ error: "failed to load suggestions" });
   });
 
+  it.each([204, 304])("preserves bodyless upstream status %i with an empty body", async (status) => {
+    const response = await createSuggestionsGetHandler({
+      getToken: async () => "secret",
+      getBaseUrl: () => "https://example.test",
+      getUserId: () => "user-a",
+      fetcher: vi.fn(async () => new Response(null, { status })),
+    })(new Request("http://localhost/api/corpus/suggestions"));
+
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe("");
+  });
+
   it("returns a generic 503 on network failure", async () => {
     const response = await createSuggestionsGetHandler({
       getToken: async () => "secret",

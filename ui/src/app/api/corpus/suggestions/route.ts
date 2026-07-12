@@ -29,6 +29,9 @@ export function createSuggestionsGetHandler(deps: Dependencies) {
         headers: authHeaders(token, userId),
         cache: "no-store",
       });
+      if ([204, 205, 304].includes(response.status)) {
+        return new Response(null, { status: response.status });
+      }
       if (!response.ok) {
         return Response.json({ error: "failed to load suggestions" }, { status: response.status });
       }
