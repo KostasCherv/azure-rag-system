@@ -187,39 +187,50 @@ class RagService:
                         }
                     ],
                 }
+                def execute(query_filter: str) -> list[RetrievedChunk]:
+                    response = self.session.post(
+                        url,
+                        headers={
+                            "Content-Type": "application/json",
+                            **bearer_headers(self.credential, AZURE_SEARCH_SCOPE),
+                        },
+                        json={**body, "filter": query_filter},
+                        timeout=30,
+                    )
+                    response.raise_for_status()
+                    results = response.json().get("value", [])
+                    chunks = [
+                        RetrievedChunk(
+                            title=item.get("title", ""),
+                            chunk=item.get("chunk", ""),
+                            source_path=item.get("source_path", ""),
+                            score=item.get("@search.rerankerScore") or item.get("@search.score"),
+                            caption=((item.get("@search.captions") or [{}])[0].get("text") or ""),
+                        )
+                        for item in results
+                    ]
+                    return [
+                        chunk
+                        for chunk in chunks
+                        if chunk.score is not None and chunk.score >= self.config.search_min_score
+                    ]
+
                 # Unconditional isolation filter: the caller's own documents
                 # plus the shared corpus (user_id null). Never client-supplied.
                 user_filter = f"(user_id eq '{user_id}' or user_id eq null)"
                 if source:
                     escaped = source.replace("'", "''")
-                    user_filter += f" and search.ismatch('{escaped}', 'title')"
-                body["filter"] = user_filter
-                response = self.session.post(
-                    url,
-                    headers={
-                        "Content-Type": "application/json",
-                        **bearer_headers(self.credential, AZURE_SEARCH_SCOPE),
-                    },
-                    json=body,
-                    timeout=30,
-                )
-                response.raise_for_status()
-                results = response.json().get("value", [])
-                chunks = [
-                    RetrievedChunk(
-                        title=item.get("title", ""),
-                        chunk=item.get("chunk", ""),
-                        source_path=item.get("source_path", ""),
-                        score=item.get("@search.rerankerScore") or item.get("@search.score"),
-                        caption=((item.get("@search.captions") or [{}])[0].get("text") or ""),
+                    filtered = execute(
+                        user_filter + f" and search.ismatch('{escaped}', 'title')"
                     )
-                    for item in results
-                ]
-                filtered = [
-                    chunk
-                    for chunk in chunks
-                    if chunk.score is not None and chunk.score >= self.config.search_min_score
-                ]
+                    if not filtered:
+                        # The title analyzer only matches the exact filename, so
+                        # a partial source (e.g. missing ".pdf") scopes to zero
+                        # chunks. Retry unscoped rather than report no content.
+                        span.set_attribute("rag.retrieval.source_fallback", True)
+                        filtered = execute(user_filter)
+                else:
+                    filtered = execute(user_filter)
                 span.set_attribute("rag.retrieval.result_count", len(filtered))
                 span.set_attribute(
                     "rag.retrieval.context",
