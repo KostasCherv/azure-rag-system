@@ -14,6 +14,7 @@ from openai import OpenAI
 from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential, openai_token_provider
 from .config import AppConfig
 from .identity import validate_user_id
+from .suggestions import SUGGESTION_TITLE_QUERY_TOP, dedupe_titles
 from .telemetry import start_langsmith_run, tracer
 
 
@@ -74,6 +75,67 @@ class RagService:
         finally:
             if self._owns_credential:
                 self.credential.close()
+
+    def list_visible_titles(
+        self,
+        *,
+        user_id: str,
+        top: int = SUGGESTION_TITLE_QUERY_TOP,
+    ) -> list[str]:
+        if validate_user_id(user_id) is None:
+            raise ValueError("invalid user id")
+        started = perf_counter()
+        with tracer.start_as_current_span("rag.suggestions") as span:
+            span.set_attribute("azure.search.index", self.config.search_index)
+            span.set_attribute("rag.suggestions.top", top)
+            span.set_attribute("rag.suggestions.raw_hit_count", 0)
+            span.set_attribute("rag.suggestions.result_count", 0)
+            try:
+                url = (
+                    f"{self.config.search_endpoint}/indexes/{self.config.search_index}/docs/search"
+                    f"?api-version={self.config.search_api_version}"
+                )
+                response = self.session.post(
+                    url,
+                    headers={
+                        "Content-Type": "application/json",
+                        **bearer_headers(self.credential, AZURE_SEARCH_SCOPE),
+                    },
+                    json={
+                        "search": "*",
+                        "filter": f"(user_id eq '{user_id}' or user_id eq null)",
+                        "select": "title",
+                        "top": top,
+                    },
+                    timeout=30,
+                )
+                response.raise_for_status()
+                values = response.json().get("value", [])
+                if not isinstance(values, list):
+                    values = []
+                titles = dedupe_titles(
+                    [
+                        item["title"]
+                        for item in values
+                        if isinstance(item, dict) and isinstance(item.get("title"), str)
+                    ]
+                )
+                span.set_attribute("rag.suggestions.raw_hit_count", len(values))
+                span.set_attribute("rag.suggestions.result_count", len(titles))
+                span.set_attribute(
+                    "rag.suggestions.outcome",
+                    "success" if titles else "empty",
+                )
+                return titles
+            except Exception as error:
+                span.set_attribute("rag.suggestions.outcome", "error")
+                span.record_exception(error)
+                raise
+            finally:
+                span.set_attribute(
+                    "rag.suggestions.duration_ms",
+                    (perf_counter() - started) * 1000,
+                )
 
     def retrieve(
         self,
