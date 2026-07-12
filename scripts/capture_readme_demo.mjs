@@ -43,13 +43,48 @@ await shot("01-chat-ready.png");
 
 console.log("Asking a suggested question…");
 const suggestion = page.locator('[data-testid="copilot-suggestion"]').first();
+const assistantMessages = page.locator('[data-testid="copilot-assistant-message"]');
+const existingAssistantMessageCount = await assistantMessages.count();
 await suggestion.waitFor({ timeout: 15_000 });
+const responsePromise = page.waitForResponse(
+  (response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname === "/api/copilotkit";
+  },
+  { timeout: 45_000 },
+);
 await suggestion.click();
+const response = await responsePromise;
+if (!response.ok()) {
+  throw new Error(
+    `CopilotKit request failed with HTTP ${response.status()} ${response.statusText()}`,
+  );
+}
 await page.waitForTimeout(1200);
 await shot("02-chat-question.png");
 
 console.log("Waiting for grounded answer…");
-await page.waitForLoadState("networkidle", { timeout: 45_000 });
+const responseError = await response.finished();
+if (responseError) {
+  throw new Error(
+    `CopilotKit response body failed after HTTP ${response.status()}: ${responseError.message}`,
+    { cause: responseError },
+  );
+}
+const completedAnswer = assistantMessages.nth(existingAssistantMessageCount);
+try {
+  await completedAnswer.waitFor({ state: "visible", timeout: 15_000 });
+  await completedAnswer
+    .locator('[data-testid="copilot-assistant-toolbar"]')
+    .waitFor({ state: "visible", timeout: 15_000 });
+} catch (error) {
+  const failurePath = path.join(outDir, "chat-answer-failure.png");
+  await page.screenshot({ path: failurePath, type: "png", fullPage: true });
+  throw new Error(
+    `Timed out waiting for a completed CopilotKit assistant message after HTTP ${response.status()}; saved ${failurePath}`,
+    { cause: error },
+  );
+}
 await page.waitForTimeout(1500);
 await shot("03-chat-answer.png");
 
