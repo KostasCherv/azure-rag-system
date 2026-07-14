@@ -10,7 +10,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   useConfigureSuggestions: (...args: unknown[]) => useConfigureSuggestions(...args),
 }));
 
-import { SuggestedQuestions } from "./suggested-questions";
+import { DiscussionSuggestions, SuggestedQuestions } from "./suggested-questions";
 
 type Suggestion = { title: string; message: string };
 
@@ -40,9 +40,9 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
-    expect(useConfigureSuggestions).toHaveBeenNthCalledWith(1, null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenNthCalledWith(1, null, [true, null]);
     await waitFor(() => expect(useConfigureSuggestions).toHaveBeenCalledTimes(2));
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -53,20 +53,20 @@ describe("SuggestedQuestions", () => {
 
     const [config, dependencies] = useConfigureSuggestions.mock.calls[1] as [
       { suggestions: Suggestion[]; available: string },
-      [Suggestion[]],
+      [boolean, Suggestion[]],
     ];
     expect(config).toEqual({
       suggestions,
       available: "before-first-message",
     });
-    expect(dependencies).toEqual([suggestions]);
-    expect(dependencies[0]).toBe(config.suggestions);
+    expect(dependencies).toEqual([true, suggestions]);
+    expect(dependencies[1]).toBe(config.suggestions);
   });
 
   it("registers an empty static config when the endpoint returns an empty array", async () => {
     stubFetch(new Response("[]", { status: 200 }));
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(useConfigureSuggestions).toHaveBeenCalledTimes(2));
     expect(useConfigureSuggestions).toHaveBeenNthCalledWith(
@@ -75,7 +75,7 @@ describe("SuggestedQuestions", () => {
         suggestions: [],
         available: "before-first-message",
       },
-      [[]],
+      [true, []],
     );
   });
 
@@ -83,13 +83,13 @@ describe("SuggestedQuestions", () => {
     const json = vi.fn();
     const fetchMock = stubFetch({ ok: false, json } as unknown as Response);
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(json).not.toHaveBeenCalled();
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it.each([
@@ -113,24 +113,24 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it("stays disabled when fetch rejects", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("network unavailable"));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it("aborts an in-flight request and ignores its response after unmount", async () => {
@@ -147,7 +147,7 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    const { unmount } = render(<SuggestedQuestions />);
+    const { unmount } = render(<SuggestedQuestions enabled />);
 
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal?.aborted).toBe(false);
@@ -169,5 +169,55 @@ describe("SuggestedQuestions", () => {
     });
 
     expect(useConfigureSuggestions).toHaveBeenCalledTimes(hookCallCount);
+  });
+
+  it("does not load or register corpus prompts for an ongoing discussion", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SuggestedQuestions enabled={false} />);
+
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [false, null]);
+  });
+});
+
+describe("DiscussionSuggestions", () => {
+  it("registers history-based follow-up suggestions after a discussion has messages", () => {
+    render(
+      <DiscussionSuggestions
+        discussionId="discussion-1"
+        enabled
+        messageCount={4}
+      />,
+    );
+
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(
+      {
+        instructions: expect.stringContaining("Use only the discussion history"),
+        minSuggestions: 2,
+        maxSuggestions: 3,
+        available: "after-first-message",
+        providerAgentId: "default",
+        consumerAgentId: "default",
+      },
+      ["discussion-1", true, 4],
+    );
+  });
+
+  it("stays disabled while history is unavailable or the agent is running", () => {
+    render(
+      <DiscussionSuggestions
+        discussionId="discussion-1"
+        enabled={false}
+        messageCount={4}
+      />,
+    );
+
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(
+      null,
+      ["discussion-1", false, 4],
+    );
   });
 });
