@@ -12,7 +12,7 @@ describe("ConsoleHeader", () => {
     render(<ConsoleHeader title="Chat" variant="chat" principal={principal} />);
     expect(screen.getByText("Ada Lovelace")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Switch account" }).getAttribute("href")).toBe(
-      "/.auth/logout?post_logout_redirect_uri=%2F.auth%2Flogin%2Faad%3Fpost_login_redirect_uri%3D%2F",
+      "/.auth/login/aad?post_login_redirect_uri=%2F",
     );
     expect(screen.getByRole("link", { name: "Sign out" }).getAttribute("href")).toBe("/.auth/logout");
   });
