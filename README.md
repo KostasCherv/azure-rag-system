@@ -1,11 +1,11 @@
 
-# Azure AI Search RAG Demo
+# Azure AI Search RAG System
 
 A production-shaped Azure-native RAG system for grounded chat over Markdown and PDF documents. It uses Azure Blob Storage for source files, Azure AI Search for indexing and hybrid semantic retrieval, Azure OpenAI for embeddings and answers, Cosmos DB for per-user discussion history, FastAPI for AG-UI streaming, and a Next.js + CopilotKit console for the user experience.
 
 The project is designed around managed identities, least-privilege RBAC, API Management, private backend ingress, and repeatable Bicep deployment. It is a practical reference for taking a RAG prototype past the "single script and some keys" phase.
 
-## Demo
+## Promo Video
 
 <video src="https://github.com/user-attachments/assets/b0dd52df-d56b-4519-a55a-dfa249f7ed80" autoplay loop muted playsinline width="100%"></video>
 
