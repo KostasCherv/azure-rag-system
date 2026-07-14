@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, Bot, Database, Search } from "lucide-react";
 import type { UserPrincipal } from "@/lib/user-auth";
 
-const SWITCH_ACCOUNT_URL = `/.auth/logout?post_logout_redirect_uri=${encodeURIComponent("/.auth/login/aad?post_login_redirect_uri=/")}`;
+const SWITCH_ACCOUNT_URL = "/.auth/login/aad?post_login_redirect_uri=%2F";
 
 type ConsoleHeaderProps = {
   title: string;
