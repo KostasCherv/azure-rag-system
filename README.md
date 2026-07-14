@@ -17,6 +17,7 @@ The project is designed around managed identities, least-privilege RBAC, API Man
 ## What It Includes
 
 - Azure AI Search indexing pipeline: Blob data source, skillset, chunking, embeddings, vector index, semantic ranking, and indexer controls.
+- Strict per-user corpus isolation: uploads, suggestions, retrieval, and deletion are scoped to the authenticated user's `user_id`.
 - Grounded answer generation through Azure OpenAI with citation-friendly retrieved sources.
 - FastAPI backend exposing `/health`, `/ready`, and AG-UI `/agui` streaming.
 - Per-user discussion history in Cosmos DB with reopen, rename, delete, optimistic concurrency, and 90-day inactivity expiry.

@@ -298,53 +298,6 @@ def delete_corpus_document(
     return {"name": name, "deleted_chunks": deleted_chunks}
 
 
-def upload_sample_docs(
-    config: AppConfig,
-    docs_dir: Path = Path("sample_docs"),
-    *,
-    credential: TokenCredential | None = None,
-    blob_service_client: Any | None = None,
-) -> list[str]:
-    owns_blob_service = blob_service_client is None
-    owns_credential = credential is None and owns_blob_service
-    resolved_credential = credential
-    try:
-        if owns_blob_service:
-            resolved_credential = credential if credential is not None else default_credential()
-            blob_service_client = BlobServiceClient(
-                account_url=config.storage_account_url,
-                credential=resolved_credential,
-            )
-        container = blob_service_client.get_container_client(config.storage_container)
-        try:
-            container.create_container()
-        except Exception:
-            pass
-
-        uploaded: list[str] = []
-        paths = [
-            path
-            for path in sorted(docs_dir.iterdir())
-            if path.is_file() and path.suffix.lower() in SUPPORTED_SAMPLE_DOC_TYPES
-        ]
-        for path in paths:
-            blob = container.get_blob_client(path.name)
-            blob.upload_blob(
-                path.read_bytes(),
-                overwrite=True,
-                content_settings=ContentSettings(content_type=SUPPORTED_SAMPLE_DOC_TYPES[path.suffix.lower()]),
-            )
-            uploaded.append(path.name)
-        return uploaded
-    finally:
-        try:
-            if owns_blob_service and blob_service_client is not None:
-                blob_service_client.close()
-        finally:
-            if owns_credential and resolved_credential is not None:
-                resolved_credential.close()
-
-
 def create_or_update_index(
     config: AppConfig, *, credential: TokenCredential | None = None, session: Any = requests
 ) -> None:
@@ -356,7 +309,6 @@ def create_or_update_index(
             {"name": "title", "type": "Edm.String", "searchable": True, "filterable": True, "retrievable": True},
             {"name": "source_path", "type": "Edm.String", "filterable": True, "retrievable": True},
             # Per-user isolation: filterable only, never returned or searched.
-            # null means the document belongs to the shared corpus.
             {"name": "user_id", "type": "Edm.String", "filterable": True, "retrievable": False, "searchable": False},
             {"name": "chunk", "type": "Edm.String", "searchable": True, "retrievable": True},
             {
@@ -527,17 +479,15 @@ def run_indexer(
 
 def setup_pipeline(
     config: AppConfig,
-    upload_samples: bool = True,
     run: bool = True,
     *,
     credential: TokenCredential | None = None,
     session: Any = requests,
 ) -> dict[str, Any]:
     with _credential_scope(credential) as resolved:
-        uploaded = upload_sample_docs(config, credential=resolved) if upload_samples else []
         create_or_update_index(config, credential=resolved, session=session)
         create_or_update_data_source(config, credential=resolved, session=session)
         create_or_update_skillset(config, credential=resolved, session=session)
         create_or_update_indexer(config, credential=resolved, session=session)
         status = run_indexer(config, credential=resolved, session=session) if run else {}
-        return {"uploaded": uploaded, "indexer_status": status}
+        return {"indexer_status": status}
