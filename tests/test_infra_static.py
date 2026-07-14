@@ -52,6 +52,7 @@ def test_required_app_settings_and_identities_are_declared() -> None:
     ):
         assert setting in apps
     assert "RedirectToLoginPage" in apps
+    assert "loginParameters: ['prompt=select_account']" in apps
     assert "registries:" in apps
     assert "registryIdentityId" in apps
     runtime_bicep = "\n".join(
