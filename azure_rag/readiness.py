@@ -204,7 +204,6 @@ class ReadinessService:
             search.status == "unavailable"
             or openai.status == "unavailable"
             or (cosmos is not None and cosmos.status == "unavailable")
-            or not search.document_count
         )
         if unavailable:
             status: OverallStatus = "unavailable"
