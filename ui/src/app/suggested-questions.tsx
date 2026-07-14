@@ -24,10 +24,12 @@ function isSuggestionArray(value: unknown): value is Suggestion[] {
   );
 }
 
-export function SuggestedQuestions() {
+export function SuggestedQuestions({ enabled }: { enabled: boolean }) {
   const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
+
     const controller = new AbortController();
 
     async function loadSuggestions() {
@@ -49,13 +51,42 @@ export function SuggestedQuestions() {
 
     void loadSuggestions();
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   useConfigureSuggestions(
-    suggestions === null
+    !enabled || suggestions === null
       ? null
       : { suggestions, available: "before-first-message" },
-    [suggestions],
+    [enabled, suggestions],
+  );
+
+  return null;
+}
+
+export function DiscussionSuggestions({
+  discussionId,
+  enabled,
+  messageCount,
+}: {
+  discussionId: string;
+  enabled: boolean;
+  messageCount: number;
+}) {
+  useConfigureSuggestions(
+    enabled
+      ? {
+          instructions:
+            "Suggest concise follow-up questions that naturally continue the current discussion. " +
+            "Use only the discussion history, prioritize the latest topic, and do not repeat questions " +
+            "that were already answered or suggest unrelated indexed documents.",
+          minSuggestions: 2,
+          maxSuggestions: 3,
+          available: "after-first-message",
+          providerAgentId: "default",
+          consumerAgentId: "default",
+        }
+      : null,
+    [discussionId, enabled, messageCount],
   );
 
   return null;
