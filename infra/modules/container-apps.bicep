@@ -202,6 +202,9 @@ resource uiAuth 'Microsoft.App/containerApps/authConfigs@2024-03-01' = {
           clientId: uiUserAuthClientId
           openIdIssuer: '${environment().authentication.loginEndpoint}${tenantId}/v2.0'
         }
+        login: {
+          loginParameters: ['prompt=select_account']
+        }
       }
     }
   }
