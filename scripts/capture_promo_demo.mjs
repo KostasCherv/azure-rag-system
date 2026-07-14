@@ -17,7 +17,9 @@ const outDir = path.join(root, 'video/public/capture');
 const diagnosticDir = path.join(root, 'output/playwright/promo');
 const baseUrl = process.env.DEMO_BASE_URL ?? 'http://localhost:3000';
 const recordedPath = path.join(outDir, 'app-demo.raw.webm');
-const demoUserId = process.env.DEMO_USER_ID ?? `portfolio-demo-${Date.now()}`;
+const demoHost = new URL(baseUrl).hostname;
+const localDemo = ['localhost', '127.0.0.1', '::1'].includes(demoHost);
+const demoUserId = process.env.DEMO_USER_ID ?? (localDemo ? 'local-development-user' : `portfolio-demo-${Date.now()}`);
 const demoPrincipal = Buffer.from(JSON.stringify({
   claims: [
     {typ: 'name', val: 'Portfolio Demo'},
@@ -53,21 +55,23 @@ async function failWithScreenshot(error) {
 try {
   console.log('Opening ready chat…');
   await page.goto(`${baseUrl}/`, {waitUntil: 'networkidle'});
+  await page.addStyleTag({content: 'nextjs-portal { display: none !important; }'});
   await page.getByText('Connected', {exact: true}).waitFor({timeout: 30_000});
   const chatInput = page.getByRole('textbox', {name: 'Ask the indexed knowledge base...'});
   await chatInput.waitFor({timeout: 20_000});
+  await page.getByRole('button', {name: 'New discussion', exact: true}).click();
+  const suggestedQuestion = page.getByRole('button', {name: 'Ask about 01-attention-is-all-you-need.pdf'});
+  await suggestedQuestion.waitFor({timeout: 20_000});
   mark('welcome');
-  await page.waitForTimeout(2600);
+  await page.waitForTimeout(2200);
 
-  console.log('Asking a grounded question…');
+  console.log('Choosing a corpus-derived question…');
   const responsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === 'POST' && url.pathname === '/api/copilotkit';
   }, {timeout: 60_000});
-  mark('question');
-  await chatInput.pressSequentially('How do I clean the Dyson V10 filter?', {delay: 38});
-  await page.waitForTimeout(450);
-  await chatInput.press('Enter');
+  mark('query');
+  await suggestedQuestion.click();
   const response = await responsePromise;
   if (!response.ok()) throw new Error(`CopilotKit returned HTTP ${response.status()}`);
   await response.finished();
@@ -76,22 +80,33 @@ try {
   // its DOM placement changed between 1.61 and 1.62.
   await page.waitForTimeout(800);
   mark('answer');
-  await page.waitForTimeout(4200);
+  await page.waitForTimeout(3600);
 
-  console.log('Showing persistent discussion history…');
-  mark('history');
-  await page.getByRole('button', {name: 'New discussion'}).click();
-  await page.getByText('Ask a question about the indexed documents.').waitFor({timeout: 15_000});
-  await page.waitForTimeout(2800);
+  console.log('Asking a contextual follow-up…');
+  const followupPromise = page.waitForResponse((candidate) => {
+    const url = new URL(candidate.url());
+    return candidate.request().method() === 'POST' && url.pathname === '/api/copilotkit';
+  }, {timeout: 60_000});
+  mark('followup');
+  await chatInput.pressSequentially('How does multi-head attention improve the model?', {delay: 32});
+  await page.waitForTimeout(350);
+  await chatInput.press('Enter');
+  const followupResponse = await followupPromise;
+  if (!followupResponse.ok()) throw new Error(`CopilotKit follow-up returned HTTP ${followupResponse.status()}`);
+  await followupResponse.finished();
+  await page.waitForTimeout(800);
+  mark('followupAnswer');
+  await page.waitForTimeout(3200);
 
-  console.log('Opening corpus operations…');
-  await page.getByRole('link', {name: 'Corpus'}).click();
-  await page.getByRole('button', {name: 'Refresh'}).waitFor({timeout: 20_000});
-  mark('corpus');
-  await page.waitForTimeout(1200);
-  await page.locator('input[type="file"]').setInputFiles(path.join(root, 'sample_docs/ecobee-lite-spec-sheet.pdf'));
-  await page.getByText('ecobee-lite-spec-sheet.pdf', {exact: true}).waitFor({timeout: 30_000});
-  await page.waitForTimeout(4200);
+  console.log('Opening an inline citation…');
+  const citations = page.getByRole('button', {name: 'Go to source 1'});
+  await citations.first().waitFor({timeout: 20_000});
+  const citationCount = await citations.count();
+  if (citationCount < 1) throw new Error('Expected at least one source citation');
+  const citation = citations.nth(citationCount - 1);
+  await citation.click();
+  mark('citation');
+  await page.waitForTimeout(2600);
   mark('end');
 } catch (error) {
   captureFailed = true;
@@ -111,15 +126,16 @@ try {
 
 const trimStart = absoluteMarkers.welcome;
 const loadingSpeed = 2.5;
-const question = absoluteMarkers.question - trimStart;
-const answer = question + (absoluteMarkers.answer - absoluteMarkers.question) / loadingSpeed;
-const history = answer + absoluteMarkers.history - absoluteMarkers.answer;
-const corpus = history + absoluteMarkers.corpus - absoluteMarkers.history;
+const query = absoluteMarkers.query - trimStart;
+const answer = query + (absoluteMarkers.answer - absoluteMarkers.query) / loadingSpeed;
+const followup = answer + absoluteMarkers.followup - absoluteMarkers.answer;
+const followupAnswer = followup + (absoluteMarkers.followupAnswer - absoluteMarkers.followup) / loadingSpeed;
+const citation = followupAnswer + absoluteMarkers.citation - absoluteMarkers.followupAnswer;
 const manifest = {
-  durationSeconds: Math.max(1, corpus + absoluteMarkers.end - absoluteMarkers.corpus),
+  durationSeconds: Math.max(1, citation + absoluteMarkers.end - absoluteMarkers.citation),
   trimStartSeconds: trimStart,
   loadingSpeed,
-  markers: {welcome: 0, question, answer, history, corpus},
+  markers: {welcome: 0, query, answer, followup, followupAnswer, citation},
 };
 
 // The Remotion composition expects visible time to begin at frame zero. Keep a
@@ -130,10 +146,12 @@ await copyFile(recordedPath, untrimmedPath);
 const {spawnSync} = await import('node:child_process');
 const trimmedPath = path.join(outDir, 'app-demo.trimmed.webm');
 const filter = [
-  `[0:v]trim=start=${absoluteMarkers.welcome}:end=${absoluteMarkers.question},setpts=PTS-STARTPTS[v0]`,
-  `[0:v]trim=start=${absoluteMarkers.question}:end=${absoluteMarkers.answer},setpts=(PTS-STARTPTS)/${loadingSpeed}[v1]`,
-  `[0:v]trim=start=${absoluteMarkers.answer}:end=${absoluteMarkers.end},setpts=PTS-STARTPTS[v2]`,
-  '[v0][v1][v2]concat=n=3:v=1:a=0[outv]',
+  `[0:v]trim=start=${absoluteMarkers.welcome}:end=${absoluteMarkers.query},setpts=PTS-STARTPTS[v0]`,
+  `[0:v]trim=start=${absoluteMarkers.query}:end=${absoluteMarkers.answer},setpts=(PTS-STARTPTS)/${loadingSpeed}[v1]`,
+  `[0:v]trim=start=${absoluteMarkers.answer}:end=${absoluteMarkers.followup},setpts=PTS-STARTPTS[v2]`,
+  `[0:v]trim=start=${absoluteMarkers.followup}:end=${absoluteMarkers.followupAnswer},setpts=(PTS-STARTPTS)/${loadingSpeed}[v3]`,
+  `[0:v]trim=start=${absoluteMarkers.followupAnswer}:end=${absoluteMarkers.end},setpts=PTS-STARTPTS[v4]`,
+  '[v0][v1][v2][v3][v4]concat=n=5:v=1:a=0[outv]',
 ].join(';');
 const trim = spawnSync('ffmpeg', [
   '-y', '-v', 'error', '-i', recordedPath, '-filter_complex', filter, '-map', '[outv]',

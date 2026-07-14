@@ -8,7 +8,7 @@ The project is designed around managed identities, least-privilege RBAC, API Man
 
 <video src="assets/promo/azure-rag-promo.webm" autoplay loop muted playsinline width="100%"></video>
 
-*A production-shaped Azure RAG flow: readiness, grounded streaming answers, citations, discussion history, and corpus operations.*
+*A production-shaped Azure RAG flow: live readiness, corpus-derived prompts, grounded answers, contextual follow-ups, and traceable citations.*
 
 | Chat (ready) | Question + sources | Grounded answer | Corpus browser |
 |---|---|---|---|

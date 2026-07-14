@@ -1,12 +1,13 @@
 {
-  "durationSeconds": 27.2,
-  "trimStartSeconds": 0.846,
+  "durationSeconds": 26.058,
+  "trimStartSeconds": 1.93,
   "loadingSpeed": 2.5,
   "markers": {
     "welcome": 0,
-    "question": 2.605,
-    "answer": 11.461,
-    "history": 15.665,
-    "corpus": 18.622
+    "query": 2.207,
+    "answer": 8.581,
+    "followup": 12.187000000000001,
+    "followupAnswer": 20.233,
+    "citation": 23.457
   }
 }

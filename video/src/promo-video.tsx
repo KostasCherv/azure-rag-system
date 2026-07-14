@@ -2,7 +2,6 @@ import type {CSSProperties} from 'react';
 import {
   AbsoluteFill,
   Easing,
-  Img,
   OffthreadVideo,
   Sequence,
   interpolate,
@@ -15,10 +14,11 @@ type Manifest = {
   durationSeconds: number;
   markers: {
     welcome: number;
-    question: number;
+    query: number;
     answer: number;
-    history: number;
-    corpus: number;
+    followup: number;
+    followupAnswer: number;
+    citation: number;
   };
 };
 
@@ -84,10 +84,11 @@ const Intro = () => {
 };
 
 const featureAt = (seconds: number, manifest: Manifest) => {
-  if (seconds >= manifest.markers.corpus) return ['Corpus operations', 'Upload, delete, refresh, and run the Azure AI Search indexer.'];
-  if (seconds >= manifest.markers.history) return ['Persistent discussions', 'Per-user history can be reopened, renamed, and safely deleted.'];
-  if (seconds >= manifest.markers.answer) return ['Citation-friendly answers', 'Every response stays traceable to the retrieved source chunks.'];
-  if (seconds >= manifest.markers.question) return ['Hybrid semantic retrieval', 'The assistant streams grounded answers through AG-UI.'];
+  if (seconds >= manifest.markers.citation) return ['Traceable sources', 'Inline citations jump directly to the supporting retrieved chunk.'];
+  if (seconds >= manifest.markers.followupAnswer) return ['Context-aware follow-ups', 'The conversation stays grounded across multiple turns.'];
+  if (seconds >= manifest.markers.followup) return ['Conversational RAG', 'Ask a natural follow-up without repeating the original context.'];
+  if (seconds >= manifest.markers.answer) return ['Grounded answers', 'Hybrid search results stream back with source citations.'];
+  if (seconds >= manifest.markers.query) return ['Corpus-derived prompts', 'Start with a useful question generated from the indexed documents.'];
   return ['Production readiness', 'Live Search, OpenAI, document, and indexer health at a glance.'];
 };
 
@@ -98,14 +99,6 @@ const AppDemo = ({manifest}: {manifest: Manifest}) => {
   const [title, caption] = featureAt(seconds, manifest);
   const enter = interpolate(frame, [0, 22], [0.94, 1], {easing: Easing.out(Easing.cubic), extrapolateRight: 'clamp'});
   const labelOpacity = interpolate(frame % 120, [0, 10], [0.82, 1], {extrapolateRight: 'clamp'});
-  const answerFrame = manifest.markers.answer * fps;
-  const historyFrame = manifest.markers.history * fps;
-  const citationOpacity = interpolate(
-    frame,
-    [answerFrame, answerFrame + 10, historyFrame - 10, historyFrame],
-    [0, 1, 1, 0],
-    {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'},
-  );
 
   return (
     <AbsoluteFill style={{...base, background: '#dce7f1'}}>
@@ -119,10 +112,6 @@ const AppDemo = ({manifest}: {manifest: Manifest}) => {
       </div>
       <div style={{position: 'absolute', top: 105, left: 250, right: 250, bottom: 150, borderRadius: 24, overflow: 'hidden', background: '#f4f6f8', border: '1px solid rgba(95,120,145,.28)', boxShadow: '0 36px 90px rgba(37,62,89,.24)', transform: `scale(${enter})`}}>
         <OffthreadVideo src={staticFile('capture/app-demo.webm')} muted style={{width: '100%', height: '100%', objectFit: 'contain'}} />
-        <Img
-          src={staticFile('capture/citations.png')}
-          style={{position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', background: '#f4f6f8', opacity: citationOpacity}}
-        />
       </div>
       <div style={{position: 'absolute', left: 94, right: 94, bottom: 45, display: 'flex', alignItems: 'center', gap: 22, opacity: labelOpacity}}>
         <div style={{height: 56, width: 6, borderRadius: 99, background: azure}} />
