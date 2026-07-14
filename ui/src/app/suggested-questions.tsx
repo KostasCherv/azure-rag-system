@@ -76,10 +76,10 @@ export function DiscussionSuggestions({
     enabled
       ? {
           instructions:
-            "Suggest concise follow-up questions that naturally continue the current discussion. " +
+            "Suggest exactly three concise follow-up questions that naturally continue the current discussion. " +
             "Use only the discussion history, prioritize the latest topic, and do not repeat questions " +
             "that were already answered or suggest unrelated indexed documents.",
-          minSuggestions: 2,
+          minSuggestions: 3,
           maxSuggestions: 3,
           available: "after-first-message",
           providerAgentId: "default",

@@ -196,7 +196,7 @@ describe("DiscussionSuggestions", () => {
     expect(useConfigureSuggestions).toHaveBeenCalledWith(
       {
         instructions: expect.stringContaining("Use only the discussion history"),
-        minSuggestions: 2,
+        minSuggestions: 3,
         maxSuggestions: 3,
         available: "after-first-message",
         providerAgentId: "default",
