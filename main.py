@@ -4,7 +4,6 @@ from azure_rag.search_pipeline import setup_pipeline
 
 def main():
     result = setup_pipeline(AppConfig.from_env())
-    print("Uploaded sample docs:", ", ".join(result["uploaded"]) or "none")
     last = (result["indexer_status"].get("lastResult") or {})
     print("Indexer status:", last.get("status", "unknown"))
 

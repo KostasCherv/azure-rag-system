@@ -12,7 +12,6 @@ azure_rag/
   api.py              FastAPI routes and request/response models
   sessions.py         Per-user Cosmos DB discussion storage and APIs
   agent.py            Agent Framework agent + search_docs tool
-sample_docs/          Sample Markdown/PDF knowledge base
 scripts/
   setup_azure_rag.py  Pipeline setup entry point
 tests/                Backend unit tests
@@ -54,12 +53,13 @@ uv run python main.py
 
 The command is designed to be rerunnable. It:
 
-1. Uploads `sample_docs/*.md` and `sample_docs/*.pdf` to the configured Blob container.
-2. Creates or updates the vector and semantic index.
-3. Creates or updates the Blob data source.
-4. Creates or updates the split-and-embed skillset.
-5. Creates or updates the indexer.
-6. Runs the indexer and polls for up to three minutes.
+1. Creates or updates the vector and semantic index.
+2. Creates or updates the Blob data source.
+3. Creates or updates the split-and-embed skillset.
+4. Creates or updates the indexer.
+5. Runs the indexer and polls for up to three minutes.
+
+Documents enter the corpus only through the authenticated upload API, which stores them under the caller's user ID and stamps the same ID into Blob metadata for index filtering.
 
 Resource names are derived from `AZURE_SEARCH_INDEX`:
 

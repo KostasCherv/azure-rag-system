@@ -153,7 +153,7 @@ def test_list_visible_titles_queries_search_and_normalizes_titles():
                 },
                 "json": {
                     "search": "*",
-                    "filter": "(user_id eq 'user-a' or user_id eq null)",
+                    "filter": "user_id eq 'user-a'",
                     "select": "title",
                     "top": 100,
                 },
@@ -459,7 +459,7 @@ def test_retrieve_applies_source_title_filter():
     )
     service.retrieve("battery capacity", user_id="user-a", source="Tesla Powerwall")
 
-    assert session.calls[0]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null) and search.ismatch('Tesla Powerwall', 'title')"
+    assert session.calls[0]["json"]["filter"] == "user_id eq 'user-a' and search.ismatch('Tesla Powerwall', 'title')"
 
 
 def test_retrieve_retries_without_source_filter_when_scoped_search_is_empty():
@@ -504,7 +504,7 @@ def test_retrieve_retries_without_source_filter_when_scoped_search_is_empty():
 
     assert len(session.calls) == 2
     assert "ismatch" in session.calls[0]["json"]["filter"]
-    assert session.calls[1]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null)"
+    assert session.calls[1]["json"]["filter"] == "user_id eq 'user-a'"
     assert len(chunks) == 1
     assert chunks[0].title == "Design_Machine_Learning_Systems.pdf"
 
@@ -548,7 +548,7 @@ def test_retrieve_escapes_single_quotes_in_source_filter():
     )
     service.retrieve("warranty", user_id="user-a", source="Bob's Manual")
 
-    assert session.calls[0]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null) and search.ismatch('Bob''s Manual', 'title')"
+    assert session.calls[0]["json"]["filter"] == "user_id eq 'user-a' and search.ismatch('Bob''s Manual', 'title')"
 
 
 def test_retrieve_rejects_invalid_user_id():
@@ -574,7 +574,7 @@ def test_retrieve_always_applies_user_isolation_filter():
     )
     service.retrieve("security", user_id="user-a")
 
-    assert session.calls[0][1]["json"]["filter"] == "(user_id eq 'user-a' or user_id eq null)"
+    assert session.calls[0][1]["json"]["filter"] == "user_id eq 'user-a'"
 
 
 def test_retrieve_records_question_context_scores_and_duration(monkeypatch):

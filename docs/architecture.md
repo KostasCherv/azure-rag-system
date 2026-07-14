@@ -48,7 +48,6 @@ sequenceDiagram
     participant Embed as Azure OpenAI Embeddings
     participant Index as Search Index
 
-    Setup->>Blob: Upload sample_docs/*.md and *.pdf
     Setup->>Search: PUT index
     Setup->>Search: PUT Blob data source
     Setup->>Search: PUT skillset
@@ -95,12 +94,12 @@ sequenceDiagram
 
 | Component | Implementation | Responsibility | Current features |
 |---|---|---|---|
-| Source storage | Azure Blob Storage | Durable source-document store | Existing container support; sample Markdown/PDF upload; overwrite on rerun |
+| Source storage | Azure Blob Storage | Durable per-user source-document store | Authenticated Markdown/PDF upload under the caller's user ID; overwrite on re-upload |
 | Search index | Azure AI Search | Stores retrievable chunks and vectors | HNSW cosine vector search; 1536 dimensions; semantic configuration; filterable source metadata |
 | Data source | Azure AI Search Blob data source | Connects Search to the Blob container | High-water-mark change detection based on Blob last-modified metadata |
 | Skillset | Azure AI Search integrated vectorization | Enriches documents during indexing | 1,800-character page chunks; 250-character overlap; Azure OpenAI embedding skill; index projections |
 | Indexer | Azure AI Search indexer | Orchestrates Blob extraction and enrichment | Content and metadata extraction; strict zero-failure policy; status polling |
-| Retrieval | `azure_rag/rag.py` | Finds grounding context | Semantic hybrid search: full-text query, integrated query vectorization, HNSW candidates, semantic reranking, captions, and answers requested from Search |
+| Retrieval | `azure_rag/rag.py` | Finds per-user grounding context | Semantic hybrid search with a mandatory caller-owned `user_id` filter, integrated query vectorization, HNSW candidates, semantic reranking, captions, and answers requested from Search |
 | Generation | Azure OpenAI chat deployment | Produces the final answer | Agent Framework streams grounded answers; citations from `search_docs` tool results |
 | API | FastAPI | Exposes UI-facing operations | Process health, readiness, Agent Framework AG-UI streaming endpoint |
 | Agent runtime | Microsoft Agent Framework + AG-UI | Owns chat streaming and tool calls | Azure OpenAI agent with `search_docs` tool; AG-UI SSE via `agent-framework-ag-ui` |
