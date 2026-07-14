@@ -98,7 +98,7 @@ function ChatDriver({ session, onSaved, onConflict, onSaveFailed }: {
       <DiscussionSuggestions
         discussionId={session.id}
         enabled={agent.threadId === session.id && agent.messages.length > 0 && !agent.isRunning}
-        messageCount={agent.messages.length}
+        messages={agent.messages}
       />
       <CopilotChat
         key={session.id}
