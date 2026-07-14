@@ -1,6 +1,7 @@
 from azure_rag.auth import AZURE_SEARCH_SCOPE
 from azure_rag.config import AppConfig
 from azure_rag.rag import RagService, RetrievedChunk, source_label
+from azure_rag.suggestions import FollowupSuggestion, FollowupSuggestionBatch
 
 
 def config():
@@ -327,6 +328,92 @@ def test_rag_service_constructs_v1_openai_client_with_token_provider(monkeypatch
         "base_url": "https://example.openai.azure.com/openai/v1/",
         "api_key": "token-provider",
     }
+
+
+def test_suggest_followups_makes_exactly_one_model_call_and_returns_at_most_three():
+    class FakeResponses:
+        def __init__(self):
+            self.calls = []
+
+        def parse(self, **kwargs):
+            self.calls.append(kwargs)
+            return type(
+                "Response",
+                (),
+                {
+                    "output_parsed": FollowupSuggestionBatch(
+                        suggestions=[
+                            FollowupSuggestion(title="One", message="Question one?"),
+                            FollowupSuggestion(title="Two", message="Question two?"),
+                            FollowupSuggestion(title="Three", message="Question three?"),
+                        ]
+                    )
+                },
+            )()
+
+    responses = FakeResponses()
+
+    class FakeClient:
+        def __init__(self):
+            self.responses = responses
+            self.options = []
+
+        def with_options(self, **kwargs):
+            self.options.append(kwargs)
+            return self
+
+        def close(self):
+            pass
+
+    openai_client = FakeClient()
+    service = RagService(config(), credential=FakeCredential(), openai_client=openai_client)
+    history = [{"role": "user", "content": "What should I ask next?"}]
+
+    result = service.suggest_followups(history)
+
+    assert result == [
+        {"title": "One", "message": "Question one?"},
+        {"title": "Two", "message": "Question two?"},
+        {"title": "Three", "message": "Question three?"},
+    ]
+    assert len(responses.calls) == 1
+    assert openai_client.options == [{"max_retries": 0, "timeout": 15.0}]
+    assert responses.calls[0]["input"] == history
+    assert responses.calls[0]["text_format"] is FollowupSuggestionBatch
+
+
+def test_suggest_followups_does_not_retry_failure():
+    class FailingResponses:
+        def __init__(self):
+            self.calls = 0
+
+        def parse(self, **_kwargs):
+            self.calls += 1
+            raise TimeoutError("model timeout")
+
+    responses = FailingResponses()
+
+    class FakeClient:
+        def __init__(self):
+            self.responses = responses
+            self.options = []
+
+        def with_options(self, **kwargs):
+            self.options.append(kwargs)
+            return self
+
+        def close(self):
+            pass
+
+    openai_client = FakeClient()
+    service = RagService(config(), credential=FakeCredential(), openai_client=openai_client)
+
+    import pytest
+
+    with pytest.raises(TimeoutError, match="model timeout"):
+        service.suggest_followups([{"role": "user", "content": "Question"}])
+    assert responses.calls == 1
+    assert openai_client.options == [{"max_retries": 0, "timeout": 15.0}]
 
 
 def test_rag_service_closes_only_internally_created_resources(monkeypatch):

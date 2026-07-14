@@ -14,7 +14,12 @@ from openai import OpenAI
 from .auth import AZURE_SEARCH_SCOPE, bearer_headers, default_credential, openai_token_provider
 from .config import AppConfig
 from .identity import validate_user_id
-from .suggestions import SUGGESTION_TITLE_QUERY_TOP, dedupe_titles
+from .suggestions import (
+    ChatSuggestion,
+    FollowupSuggestionBatch,
+    SUGGESTION_TITLE_QUERY_TOP,
+    dedupe_titles,
+)
 from .telemetry import start_langsmith_run, tracer
 
 
@@ -128,6 +133,49 @@ class RagService:
                     "success" if titles else "empty",
                 )
                 return titles
+            except Exception as error:
+                span.set_attribute("rag.suggestions.outcome", "error")
+                span.record_exception(error)
+                raise
+            finally:
+                span.set_attribute(
+                    "rag.suggestions.duration_ms",
+                    (perf_counter() - started) * 1000,
+                )
+
+    def suggest_followups(self, messages: list[dict[str, str]]) -> list[ChatSuggestion]:
+        started = perf_counter()
+        with tracer.start_as_current_span("rag.discussion_suggestions") as span:
+            span.set_attribute("gen_ai.system", "azure_openai")
+            span.set_attribute("gen_ai.request.model", self.config.azure_openai_chat_deployment)
+            span.set_attribute("rag.suggestions.model_attempts", 1)
+            try:
+                response = self.openai.with_options(
+                    max_retries=0,
+                    timeout=15.0,
+                ).responses.parse(
+                    model=self.config.azure_openai_chat_deployment,
+                    instructions=(
+                        "Suggest up to three concise follow-up questions that naturally continue "
+                        "the latest topic in this discussion. Use only the supplied history. "
+                        "Do not repeat answered questions or introduce unrelated documents. "
+                        "Returning fewer than three suggestions is acceptable."
+                    ),
+                    input=messages,
+                    text_format=FollowupSuggestionBatch,
+                    max_output_tokens=500,
+                )
+                parsed = response.output_parsed
+                if not isinstance(parsed, FollowupSuggestionBatch):
+                    raise ValueError("invalid follow-up suggestion response")
+                suggestions: list[ChatSuggestion] = [
+                    {"title": item.title.strip(), "message": item.message.strip()}
+                    for item in parsed.suggestions[:3]
+                    if item.title.strip() and item.message.strip()
+                ]
+                span.set_attribute("rag.suggestions.result_count", len(suggestions))
+                span.set_attribute("rag.suggestions.outcome", "success")
+                return suggestions
             except Exception as error:
                 span.set_attribute("rag.suggestions.outcome", "error")
                 span.record_exception(error)

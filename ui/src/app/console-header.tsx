@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowLeft, Bot, Database, Search } from "lucide-react";
 import type { UserPrincipal } from "@/lib/user-auth";
 
+const SWITCH_ACCOUNT_URL = "/.auth/login/aad?post_login_redirect_uri=%2F";
+
 type ConsoleHeaderProps = {
   title: string;
   variant: "chat" | "corpus";
@@ -45,6 +47,7 @@ export function ConsoleHeader({ title, variant, principal = null, activePage }: 
         {principal ? (
           <span className="user-strip">
             {principal.name}
+            <a className="nav-link" href={SWITCH_ACCOUNT_URL}>Switch account</a>
             <a className="nav-link" href="/.auth/logout">Sign out</a>
           </span>
         ) : null}

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { useConfigureSuggestions } = vi.hoisted(() => ({
@@ -10,7 +11,7 @@ vi.mock("@copilotkit/react-core/v2", () => ({
   useConfigureSuggestions: (...args: unknown[]) => useConfigureSuggestions(...args),
 }));
 
-import { SuggestedQuestions } from "./suggested-questions";
+import { DiscussionSuggestions, SuggestedQuestions } from "./suggested-questions";
 
 type Suggestion = { title: string; message: string };
 
@@ -29,6 +30,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  sessionStorage.clear();
 });
 
 describe("SuggestedQuestions", () => {
@@ -40,9 +42,9 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
-    expect(useConfigureSuggestions).toHaveBeenNthCalledWith(1, null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenNthCalledWith(1, null, [true, null]);
     await waitFor(() => expect(useConfigureSuggestions).toHaveBeenCalledTimes(2));
 
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -53,20 +55,20 @@ describe("SuggestedQuestions", () => {
 
     const [config, dependencies] = useConfigureSuggestions.mock.calls[1] as [
       { suggestions: Suggestion[]; available: string },
-      [Suggestion[]],
+      [boolean, Suggestion[]],
     ];
     expect(config).toEqual({
       suggestions,
       available: "before-first-message",
     });
-    expect(dependencies).toEqual([suggestions]);
-    expect(dependencies[0]).toBe(config.suggestions);
+    expect(dependencies).toEqual([true, suggestions]);
+    expect(dependencies[1]).toBe(config.suggestions);
   });
 
   it("registers an empty static config when the endpoint returns an empty array", async () => {
     stubFetch(new Response("[]", { status: 200 }));
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(useConfigureSuggestions).toHaveBeenCalledTimes(2));
     expect(useConfigureSuggestions).toHaveBeenNthCalledWith(
@@ -75,7 +77,7 @@ describe("SuggestedQuestions", () => {
         suggestions: [],
         available: "before-first-message",
       },
-      [[]],
+      [true, []],
     );
   });
 
@@ -83,13 +85,13 @@ describe("SuggestedQuestions", () => {
     const json = vi.fn();
     const fetchMock = stubFetch({ ok: false, json } as unknown as Response);
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(json).not.toHaveBeenCalled();
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it.each([
@@ -113,24 +115,24 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it("stays disabled when fetch rejects", async () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error("network unavailable"));
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<SuggestedQuestions />);
+    render(<SuggestedQuestions enabled />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
     await act(async () => {});
     expect(useConfigureSuggestions).toHaveBeenCalledOnce();
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [null]);
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [true, null]);
   });
 
   it("aborts an in-flight request and ignores its response after unmount", async () => {
@@ -147,7 +149,7 @@ describe("SuggestedQuestions", () => {
       }),
     );
 
-    const { unmount } = render(<SuggestedQuestions />);
+    const { unmount } = render(<SuggestedQuestions enabled />);
 
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(signal?.aborted).toBe(false);
@@ -169,5 +171,101 @@ describe("SuggestedQuestions", () => {
     });
 
     expect(useConfigureSuggestions).toHaveBeenCalledTimes(hookCallCount);
+  });
+
+  it("does not load or register corpus prompts for an ongoing discussion", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SuggestedQuestions enabled={false} />);
+
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useConfigureSuggestions).toHaveBeenCalledWith(null, [false, null]);
+  });
+});
+
+describe("DiscussionSuggestions", () => {
+  it("makes one request and hard-caps history-based suggestions at three", async () => {
+    const returned = [
+      { title: "One", message: "Question one?" },
+      { title: "Two", message: "Question two?" },
+      { title: "Three", message: "Question three?" },
+      { title: "Four", message: "Question four?" },
+    ];
+    const fetchMock = stubFetch(new Response(JSON.stringify(returned), { status: 200 }));
+    const messages = [
+      { id: "u-one-call", role: "user", content: "Tell me about deployment." },
+      { id: "a-one-call", role: "assistant", content: "Deployment uses Azure." },
+    ];
+
+    render(
+      <StrictMode>
+        <DiscussionSuggestions
+          discussionId="discussion-one-call"
+          enabled
+          messages={messages}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      const configured = useConfigureSuggestions.mock.calls.some(
+        ([config]) => config && (config as { suggestions?: Suggestion[] }).suggestions?.length === 3,
+      );
+      expect(configured).toBe(true);
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/api/discussion/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: "Tell me about deployment." },
+          { role: "assistant", content: "Deployment uses Azure." },
+        ],
+      }),
+      cache: "no-store",
+    });
+    const configured = useConfigureSuggestions.mock.calls
+      .map(([config]) => config as { suggestions?: Suggestion[] } | null)
+      .find((config) => config?.suggestions?.length === 3);
+    expect(configured).toEqual({
+      suggestions: returned.slice(0, 3),
+      available: "after-first-message",
+      consumerAgentId: "default",
+    });
+  });
+
+  it("stays disabled while history is unavailable or the agent is running", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <DiscussionSuggestions
+        discussionId="discussion-disabled"
+        enabled={false}
+        messages={[{ id: "a-disabled", role: "assistant", content: "Answer" }]}
+      />,
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useConfigureSuggestions.mock.calls.at(-1)?.[0]).toBeNull();
+  });
+
+  it("does not retry a failed request for the same completed turn", async () => {
+    const fetchMock = stubFetch(new Response("failure", { status: 503 }));
+    const messages = [{ id: "a-no-retry", role: "assistant", content: "Answer" }];
+    const view = render(
+      <DiscussionSuggestions discussionId="discussion-no-retry" enabled messages={messages} />,
+    );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await act(async () => {});
+    view.rerender(
+      <DiscussionSuggestions discussionId="discussion-no-retry" enabled messages={messages} />,
+    );
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

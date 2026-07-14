@@ -5,7 +5,7 @@ import { Check, MessageSquarePlus, Pencil, RefreshCw, Trash2, X } from "lucide-r
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CitationToolRenderer } from "./citation-tool-renderer";
 import { CitationMarkdownRenderer } from "./citation-markdown";
-import { SuggestedQuestions } from "./suggested-questions";
+import { DiscussionSuggestions, SuggestedQuestions } from "./suggested-questions";
 
 type SessionSummary = {
   id: string;
@@ -94,18 +94,25 @@ function ChatDriver({ session, onSaved, onConflict, onSaveFailed }: {
   }, [agent.isRunning, agent.messages, persist]);
 
   return (
-    <CopilotChat
-      key={session.id}
-      agentId="default"
-      welcomeScreen
-      labels={{
-        modalHeaderTitle: "RAG assistant",
-        welcomeMessageText: "Ask a question about the indexed documents.",
-        chatInputPlaceholder: "Ask the indexed knowledge base...",
-        chatDisclaimerText: "Answers are generated from Azure AI Search results.",
-      }}
-      messageView={{ assistantMessage: { markdownRenderer: CitationMarkdownRenderer } }}
-    />
+    <>
+      <DiscussionSuggestions
+        discussionId={session.id}
+        enabled={agent.threadId === session.id && agent.messages.length > 0 && !agent.isRunning}
+        messages={agent.messages}
+      />
+      <CopilotChat
+        key={session.id}
+        agentId="default"
+        welcomeScreen
+        labels={{
+          modalHeaderTitle: "RAG assistant",
+          welcomeMessageText: "Ask a question about the indexed documents.",
+          chatInputPlaceholder: "Ask the indexed knowledge base...",
+          chatDisclaimerText: "Answers are generated from Azure AI Search results.",
+        }}
+        messageView={{ assistantMessage: { markdownRenderer: CitationMarkdownRenderer } }}
+      />
+    </>
   );
 }
 
@@ -236,7 +243,7 @@ export function Chat() {
       </aside>
       <section className="discussion-chat">
         <CitationToolRenderer />
-        <SuggestedQuestions />
+        <SuggestedQuestions enabled={active?.messages.length === 0} />
         {saveError ? <div className="save-warning" role="alert">{saveError.message}<button type="button" onClick={saveError.retry ?? (() => { if (active) void openSession(active.id); })}><RefreshCw size={13} />{saveError.retry ? "Retry" : "Reload"}</button></div> : null}
         {active ? <ChatDriver session={active} onSaved={onSaved} onConflict={onConflict} onSaveFailed={onSaveFailed} /> : <div className="chat-placeholder">Preparing discussion…</div>}
       </section>

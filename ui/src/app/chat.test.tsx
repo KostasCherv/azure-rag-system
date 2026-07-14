@@ -3,6 +3,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 let chatProps: Record<string, unknown> = {};
+let suggestionsEnabled: boolean | undefined;
 const agent = {
   threadId: undefined as string | undefined,
   messages: [] as unknown[],
@@ -17,7 +18,13 @@ vi.mock("@copilotkit/react-core/v2", () => ({
 }));
 vi.mock("./citation-tool-renderer", () => ({ CitationToolRenderer: () => null }));
 vi.mock("./citation-markdown", () => ({ CitationMarkdownRenderer: () => null }));
-vi.mock("./suggested-questions", () => ({ SuggestedQuestions: () => null }));
+vi.mock("./suggested-questions", () => ({
+  SuggestedQuestions: ({ enabled }: { enabled: boolean }) => {
+    suggestionsEnabled = enabled;
+    return null;
+  },
+  DiscussionSuggestions: () => null,
+}));
 
 import { Chat } from "./chat";
 
@@ -51,6 +58,7 @@ describe("Chat", () => {
     // history restored into the agent for the persisted thread
     expect(agent.threadId).toBe(SESSION_ID);
     expect(agent.setMessages).toHaveBeenCalledWith(savedMessages);
+    expect(suggestionsEnabled).toBe(false);
     // regression: an explicit threadId makes CopilotChat's connectAgent wipe the
     // restored messages and replay from a server-side thread store we don't have
     expect(chatProps.threadId).toBeUndefined();

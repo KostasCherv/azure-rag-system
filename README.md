@@ -19,9 +19,9 @@ The project is designed around managed identities, least-privilege RBAC, API Man
 - Azure AI Search indexing pipeline: Blob data source, skillset, chunking, embeddings, vector index, semantic ranking, and indexer controls.
 - Strict per-user corpus isolation: uploads, suggestions, retrieval, and deletion are scoped to the authenticated user's `user_id`.
 - Grounded answer generation through Azure OpenAI with citation-friendly retrieved sources.
-- FastAPI backend exposing `/health`, `/ready`, and AG-UI `/agui` streaming.
+- FastAPI backend exposing `/health`, `/ready`, one-shot `/discussion/suggestions`, and AG-UI `/agui` streaming.
 - Per-user discussion history in Cosmos DB with reopen, rename, delete, optimistic concurrency, and 90-day inactivity expiry.
-- Next.js CopilotKit console with chat, readiness gating, citations, session history, and corpus management.
+- Next.js CopilotKit console with chat, readiness gating, citations, session history, corpus management, and authenticated account switching.
 - Production-style Azure deployment with Container Apps, APIM Standard v2, private API ingress, managed identities, RBAC, telemetry, and Bicep.
 - Greenfield bootstrap for empty subscriptions, while still supporting manually-created Azure resources.
 

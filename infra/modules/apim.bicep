@@ -81,6 +81,12 @@ resource corpusSuggestions 'Microsoft.ApiManagement/service/apis/operations@2024
   properties: { displayName: 'Corpus suggestions', method: 'GET', urlTemplate: '/corpus/suggestions' }
 }
 
+resource discussionSuggestions 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
+  parent: api
+  name: 'discussion-suggestions'
+  properties: { displayName: 'Discussion suggestions', method: 'POST', urlTemplate: '/discussion/suggestions' }
+}
+
 resource sessionsList 'Microsoft.ApiManagement/service/apis/operations@2024-05-01' = {
   parent: api
   name: 'sessions-list'
@@ -128,5 +134,5 @@ resource apiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01' = 
     format: 'rawxml'
     value: renderedPolicy
   }
-  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus, corpusSuggestions, sessionsList, sessionsCreate, sessionGet, sessionUpdate, sessionRename, sessionDelete]
+  dependsOn: [agui, ready, corpusList, corpusUpload, corpusDelete, corpusRun, corpusStatus, corpusSuggestions, discussionSuggestions, sessionsList, sessionsCreate, sessionGet, sessionUpdate, sessionRename, sessionDelete]
 }

@@ -100,12 +100,12 @@ sequenceDiagram
 | Skillset | Azure AI Search integrated vectorization | Enriches documents during indexing | 1,800-character page chunks; 250-character overlap; Azure OpenAI embedding skill; index projections |
 | Indexer | Azure AI Search indexer | Orchestrates Blob extraction and enrichment | Content and metadata extraction; strict zero-failure policy; status polling |
 | Retrieval | `azure_rag/rag.py` | Finds per-user grounding context | Semantic hybrid search with a mandatory caller-owned `user_id` filter, integrated query vectorization, HNSW candidates, semantic reranking, captions, and answers requested from Search |
-| Generation | Azure OpenAI chat deployment | Produces the final answer | Agent Framework streams grounded answers; citations from `search_docs` tool results |
-| API | FastAPI | Exposes UI-facing operations | Process health, readiness, Agent Framework AG-UI streaming endpoint |
+| Generation | Azure OpenAI chat deployment | Produces answers and follow-ups | Agent Framework streams grounded answers; one-shot structured generation returns at most three discussion follow-ups |
+| API | FastAPI | Exposes UI-facing operations | Process health, readiness, one-shot discussion suggestions, Agent Framework AG-UI streaming endpoint |
 | Agent runtime | Microsoft Agent Framework + AG-UI | Owns chat streaming and tool calls | Azure OpenAI agent with `search_docs` tool; AG-UI SSE via `agent-framework-ag-ui` |
 | Agent protocol | AG-UI | Standardizes UI-to-agent communication | Run lifecycle, text-message lifecycle, and error events over an event stream |
 | Web runtime | CopilotKit runtime in Next.js | Server-side agent bridge | `HttpAgent` proxy to FastAPI; backend URL kept server-side |
-| Web UI | Next.js, React, CopilotKit | Interactive test console | Responsive chat, suggested questions, answer rendering, and source display |
+| Web UI | Next.js, React, CopilotKit | Interactive test console | Responsive chat, one-shot cached follow-up suggestions, answer rendering, and source display |
 | API gateway | API Management Standard v2 | Authenticated public API boundary | Tenant/audience/client validation; 30 calls per 60 seconds and 500 calls per day for `/agui`; managed-identity backend auth |
 | Deployment | Bicep and Container Apps | Reproducible application infrastructure | Public UI environment, internal API environment, VNet/DNS, APIM, identities, RBAC, and policies |
 
