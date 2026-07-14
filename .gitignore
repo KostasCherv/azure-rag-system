@@ -11,6 +11,9 @@ wheels/
 .env
 docs/superpowers/
 /node_modules
+/video/node_modules
+/.playwright-cli
+/output
 
 # Local deployment values (real tenant/app IDs, resource names) and compiled ARM output
 infra/parameters/*.local.bicepparam

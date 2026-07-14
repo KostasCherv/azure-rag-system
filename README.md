@@ -6,9 +6,9 @@ The project is designed around managed identities, least-privilege RBAC, API Man
 
 ## Demo
 
-<video src="assets/readme/demo-overview.webm" autoplay loop muted playsinline width="100%"></video>
+<video src="assets/promo/azure-rag-promo.webm" autoplay loop muted playsinline width="100%"></video>
 
-*Chat with grounded answers and citations, plus corpus upload, delete, and indexer controls.*
+*A production-shaped Azure RAG flow: readiness, grounded streaming answers, citations, discussion history, and corpus operations.*
 
 | Chat (ready) | Question + sources | Grounded answer | Corpus browser |
 |---|---|---|---|

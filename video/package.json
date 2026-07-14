@@ -1,0 +1,24 @@
+{
+  "name": "azure-rag-promo-video",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "capture": "node ../scripts/capture_promo_demo.mjs",
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts AzureRagPromo ../assets/promo/azure-rag-promo.mp4 --codec h264 --crf 18",
+    "render:webm": "remotion render src/index.ts AzureRagPromo ../assets/promo/azure-rag-promo.webm --codec vp8 --crf 12",
+    "render:gif": "remotion render src/index.ts AzureRagPromo ../assets/promo/azure-rag-promo.gif --codec gif --scale 0.5"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.489",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.489"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/react": "19.2.7",
+    "playwright": "1.58.2",
+    "typescript": "5.9.3"
+  }
+}

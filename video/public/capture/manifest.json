@@ -1,0 +1,12 @@
+{
+  "durationSeconds": 27.2,
+  "trimStartSeconds": 0.846,
+  "loadingSpeed": 2.5,
+  "markers": {
+    "welcome": 0,
+    "question": 2.605,
+    "answer": 11.461,
+    "history": 15.665,
+    "corpus": 18.622
+  }
+}
