@@ -96,13 +96,18 @@ def test_failed_historical_indexer_is_degraded_but_200():
     assert result.http_status == 200
 
 
-def test_zero_documents_is_unavailable_503():
+def test_zero_documents_is_ready_when_deps_are_up():
     service = ReadinessService(lambda: SearchResult(status="available", document_count=0), successful_openai)
-    assert service.check().http_status == 503
+    result = service.check()
+    assert result.status == "ready"
+    assert result.http_status == 200
 
 
 def test_unavailable_readiness_endpoint_returns_503():
-    service = ReadinessService(lambda: SearchResult(status="available", document_count=0), successful_openai)
+    service = ReadinessService(
+        lambda: SearchResult(status="unavailable", error="authorization failed"),
+        successful_openai,
+    )
     app = create_app(config=config(), rag_service=FakeRag(), readiness_service=service)
     with TestClient(app) as client:
         response = client.get("/ready")
