@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { useConfigureSuggestions } = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   vi.unstubAllGlobals();
+  sessionStorage.clear();
 });
 
 describe("SuggestedQuestions", () => {
@@ -184,40 +186,86 @@ describe("SuggestedQuestions", () => {
 });
 
 describe("DiscussionSuggestions", () => {
-  it("registers history-based follow-up suggestions after a discussion has messages", () => {
+  it("makes one request and hard-caps history-based suggestions at three", async () => {
+    const returned = [
+      { title: "One", message: "Question one?" },
+      { title: "Two", message: "Question two?" },
+      { title: "Three", message: "Question three?" },
+      { title: "Four", message: "Question four?" },
+    ];
+    const fetchMock = stubFetch(new Response(JSON.stringify(returned), { status: 200 }));
+    const messages = [
+      { id: "u-one-call", role: "user", content: "Tell me about deployment." },
+      { id: "a-one-call", role: "assistant", content: "Deployment uses Azure." },
+    ];
+
     render(
-      <DiscussionSuggestions
-        discussionId="discussion-1"
-        enabled
-        messageCount={4}
-      />,
+      <StrictMode>
+        <DiscussionSuggestions
+          discussionId="discussion-one-call"
+          enabled
+          messages={messages}
+        />
+      </StrictMode>,
     );
 
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(
-      {
-        instructions: expect.stringContaining("Use only the discussion history"),
-        minSuggestions: 3,
-        maxSuggestions: 3,
-        available: "after-first-message",
-        providerAgentId: "default",
-        consumerAgentId: "default",
-      },
-      ["discussion-1", true, 4],
-    );
+    await waitFor(() => {
+      const configured = useConfigureSuggestions.mock.calls.some(
+        ([config]) => config && (config as { suggestions?: Suggestion[] }).suggestions?.length === 3,
+      );
+      expect(configured).toBe(true);
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/api/discussion/suggestions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: "Tell me about deployment." },
+          { role: "assistant", content: "Deployment uses Azure." },
+        ],
+      }),
+      cache: "no-store",
+    });
+    const configured = useConfigureSuggestions.mock.calls
+      .map(([config]) => config as { suggestions?: Suggestion[] } | null)
+      .find((config) => config?.suggestions?.length === 3);
+    expect(configured).toEqual({
+      suggestions: returned.slice(0, 3),
+      available: "after-first-message",
+      consumerAgentId: "default",
+    });
   });
 
   it("stays disabled while history is unavailable or the agent is running", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     render(
       <DiscussionSuggestions
-        discussionId="discussion-1"
+        discussionId="discussion-disabled"
         enabled={false}
-        messageCount={4}
+        messages={[{ id: "a-disabled", role: "assistant", content: "Answer" }]}
       />,
     );
 
-    expect(useConfigureSuggestions).toHaveBeenCalledWith(
-      null,
-      ["discussion-1", false, 4],
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useConfigureSuggestions.mock.calls.at(-1)?.[0]).toBeNull();
+  });
+
+  it("does not retry a failed request for the same completed turn", async () => {
+    const fetchMock = stubFetch(new Response("failure", { status: 503 }));
+    const messages = [{ id: "a-no-retry", role: "assistant", content: "Answer" }];
+    const view = render(
+      <DiscussionSuggestions discussionId="discussion-no-retry" enabled messages={messages} />,
     );
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await act(async () => {});
+    view.rerender(
+      <DiscussionSuggestions discussionId="discussion-no-retry" enabled messages={messages} />,
+    );
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

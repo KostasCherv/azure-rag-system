@@ -1,5 +1,7 @@
 from typing import TypedDict
 
+from pydantic import BaseModel, Field
+
 
 SUGGESTION_LIMIT = 4
 SUGGESTION_TITLE_QUERY_TOP = 100
@@ -8,6 +10,15 @@ SUGGESTION_TITLE_QUERY_TOP = 100
 class ChatSuggestion(TypedDict):
     title: str
     message: str
+
+
+class FollowupSuggestion(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    message: str = Field(min_length=1, max_length=500)
+
+
+class FollowupSuggestionBatch(BaseModel):
+    suggestions: list[FollowupSuggestion] = Field(max_length=3)
 
 
 def normalize_document_title(title: str) -> str | None:

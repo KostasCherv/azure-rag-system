@@ -52,6 +52,19 @@ Discussion-history routes require `X-RAG-User-ID`, supplied by the trusted Next.
 
 Missing or cross-user session IDs return 404. Concurrent writes return 409. Cosmos availability failures return 503 without exposing provider diagnostics.
 
+### `POST /discussion/suggestions`
+
+Accepts the latest user/assistant discussion history and makes exactly one Azure OpenAI request with SDK retries disabled. A successful response contains at most three contextual follow-up suggestions. Model, timeout, parsing, and upstream failures return an empty list without retrying.
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "How is the service deployed?"},
+    {"role": "assistant", "content": "It runs on Azure Container Apps."}
+  ]
+}
+```
+
 ### `POST /agui`
 
 Served by Microsoft Agent Framework's AG-UI bridge (`agent-framework-ag-ui`). The agent streams model tokens over AG-UI events and calls a `search_docs` tool that wraps Azure AI Search retrieval. CopilotKit consumes those deltas out of the box.

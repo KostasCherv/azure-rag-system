@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from .agent import create_rag_agent
 from .config import AppConfig
 from .corpus import router as corpus_router
+from .discussion import router as discussion_router
 from .identity import current_user_id, validate_user_id
 from .rag import RagService
 from .readiness import DependencyResult, ReadinessService, probe_openai, probe_search
@@ -105,6 +106,7 @@ def create_app(
         return JSONResponse(result.response_body(), status_code=result.http_status)
 
     application.include_router(corpus_router)
+    application.include_router(discussion_router)
     application.include_router(sessions_router)
 
     return application
