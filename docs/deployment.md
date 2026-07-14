@@ -215,7 +215,7 @@ AZURE_STORAGE_RESOURCE_ID=/subscriptions/<subscription-id>/resourceGroups/<resou
 
 `AZURE_OPENAI_ENDPOINT` accepts either the Azure OpenAI resource URL or its `/openai/v1` URL. The application derives the correct URL for chat calls and Azure AI Search integrated vectorization.
 
-`AZURE_STORAGE_ACCOUNT_URL` is used by the setup process to upload sample documents with Microsoft Entra authentication. `AZURE_STORAGE_RESOURCE_ID` is written to the Search Blob data source as a `ResourceId=...;` connection string; it identifies the account without containing a storage secret.
+`AZURE_STORAGE_ACCOUNT_URL` is used by the runtime upload API with Microsoft Entra authentication. `AZURE_STORAGE_RESOURCE_ID` is written to the Search Blob data source as a `ResourceId=...;` connection string; it identifies the account without containing a storage secret.
 
 Keep `.env` out of source control. The checked-in `.env.example` contains resource names and placeholders only.
 
@@ -238,7 +238,7 @@ Assign only the roles needed by each identity:
 | Application/setup managed identity | Azure AI Search service | `Search Index Data Reader` | Run retrieval queries against the index |
 | Runtime API managed identity | Azure AI Search service | `Search Service Contributor` | Read indexer status for `/ready` |
 | Setup managed identity | Azure AI Search service | `Search Service Contributor` | Create and update indexes, data sources, skillsets, and indexers |
-| Setup managed identity | Storage account or source container | `Storage Blob Data Contributor` | Create the container when needed and upload sample documents |
+| Runtime API managed identity | Storage account or source container | `Storage Blob Data Contributor` | Upload, list, and delete caller-owned documents |
 | Azure AI Search system-assigned identity | Storage account or source container | `Storage Blob Data Reader` | Read source documents during indexing |
 | Application/setup managed identity | Azure OpenAI resource | `Cognitive Services OpenAI User` | Generate grounded chat answers |
 | Azure AI Search system-assigned identity | Azure OpenAI resource | `Cognitive Services OpenAI User` | Run query-time vectorization and index-time embedding |

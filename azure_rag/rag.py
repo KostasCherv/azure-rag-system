@@ -103,7 +103,7 @@ class RagService:
                     },
                     json={
                         "search": "*",
-                        "filter": f"(user_id eq '{user_id}' or user_id eq null)",
+                        "filter": f"user_id eq '{user_id}'",
                         "select": "title",
                         "top": top,
                     },
@@ -215,9 +215,8 @@ class RagService:
                         if chunk.score is not None and chunk.score >= self.config.search_min_score
                     ]
 
-                # Unconditional isolation filter: the caller's own documents
-                # plus the shared corpus (user_id null). Never client-supplied.
-                user_filter = f"(user_id eq '{user_id}' or user_id eq null)"
+                # Unconditional isolation filter derived from the trusted caller identity.
+                user_filter = f"user_id eq '{user_id}'"
                 if source:
                     escaped = source.replace("'", "''")
                     filtered = execute(
