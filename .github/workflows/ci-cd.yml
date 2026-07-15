@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI
 
 on:
   pull_request:
@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            # Manual runs validate and release everything.
+            # Manual runs validate everything.
             for flag in api ui infra deploy_api deploy_ui deploy_infra; do
               echo "$flag=true" >> "$GITHUB_OUTPUT"
             done
@@ -154,138 +154,141 @@ jobs:
             [[ "$result" == success || "$result" == skipped ]] || exit 1
           done
 
-  release:
-    name: Release production
-    # Skipped validate jobs would make the implicit success() false, so gate
-    # the release on the CI gate's result explicitly.
-    if: >-
-      !cancelled() &&
-      needs.gate.result == 'success' &&
-      github.event_name != 'pull_request' &&
-      (needs.changes.outputs.deploy_api == 'true' ||
-       needs.changes.outputs.deploy_ui == 'true' ||
-       needs.changes.outputs.deploy_infra == 'true')
-    needs: [changes, gate]
-    runs-on: ubuntu-latest
-    environment: production
-    concurrency:
-      group: production
-      cancel-in-progress: true
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
-      SEARCH_RESOURCE_GROUP: ${{ vars.AZURE_SEARCH_RESOURCE_GROUP }}
-      SEARCH_SERVICE_NAME: ${{ vars.AZURE_SEARCH_SERVICE_NAME }}
-      ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
-      ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
-      API_APP: ${{ vars.AZURE_API_CONTAINER_APP }}
-      UI_APP: ${{ vars.AZURE_UI_CONTAINER_APP }}
-      API_CHANGED: ${{ needs.changes.outputs.deploy_api }}
-      UI_CHANGED: ${{ needs.changes.outputs.deploy_ui }}
-      INFRA_CHANGED: ${{ needs.changes.outputs.deploy_infra }}
-    steps:
-      - uses: actions/checkout@v5
-      - name: Azure login
-        uses: azure/login@v3
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
-      - name: Resolve release images
-        id: images
-        run: |
-          set -euo pipefail
-          previous_api="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$API_APP" --query 'properties.template.containers[0].image' --output tsv)"
-          previous_ui="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query 'properties.template.containers[0].image' --output tsv)"
-          api_image="$previous_api"
-          ui_image="$previous_ui"
-          [[ "$API_CHANGED" == true ]] && api_image="$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
-          [[ "$UI_CHANGED" == true ]] && ui_image="$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
-          {
-            echo "previous_api=$previous_api"
-            echo "previous_ui=$previous_ui"
-            echo "api=$api_image"
-            echo "ui=$ui_image"
-          } >> "$GITHUB_OUTPUT"
-      - name: Preview infrastructure
-        if: env.INFRA_CHANGED == 'true'
-        env:
-          API_IMAGE: ${{ steps.images.outputs.api }}
-          UI_IMAGE: ${{ steps.images.outputs.ui }}
-        run: |
-          set -euo pipefail
-          ./infra/enable-search-identity.sh "$AZURE_SUBSCRIPTION_ID" "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME"
-          az deployment group what-if \
-            --resource-group "$RESOURCE_GROUP" \
-            --template-file infra/main.bicep \
-            --parameters infra/parameters/prod.bicepparam \
-              searchResourceGroupName="$SEARCH_RESOURCE_GROUP" \
-              searchServiceName="$SEARCH_SERVICE_NAME" \
-              apiImage="$API_IMAGE" \
-              uiImage="$UI_IMAGE" \
-            --no-pretty-print
-      # ponytail: az acr build is blocked on this subscription (TasksOperationsNotAllowed),
-      # so build on the runner and push instead.
-      - name: Log in to container registry
-        if: env.API_CHANGED == 'true' || env.UI_CHANGED == 'true'
-        run: az acr login --name "$ACR_NAME"
-      - name: Publish API image
-        if: env.API_CHANGED == 'true'
-        run: |
-          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}" --file Dockerfile .
-          docker push "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
-      - name: Publish UI image
-        if: env.UI_CHANGED == 'true'
-        run: |
-          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}" --file ui/Dockerfile ui
-          docker push "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
-      - name: Deploy and verify
-        env:
-          API_IMAGE: ${{ steps.images.outputs.api }}
-          UI_IMAGE: ${{ steps.images.outputs.ui }}
-          PREVIOUS_API: ${{ steps.images.outputs.previous_api }}
-          PREVIOUS_UI: ${{ steps.images.outputs.previous_ui }}
-        run: |
-          set -euo pipefail
-
-          wait_for_healthy_revision() {
-            local app="$1"
-            for _ in {1..30}; do
-              if az containerapp revision list --resource-group "$RESOURCE_GROUP" --name "$app" \
-                --query "[?properties.active && properties.healthState == 'Healthy' && properties.provisioningState == 'Provisioned'] | length(@)" \
-                --output tsv | grep -qx '[1-9][0-9]*'; then
-                return 0
-              fi
-              sleep 10
-            done
-            return 1
-          }
-
-          deploy() {
-            if [[ "$INFRA_CHANGED" == true ]]; then
-              ./infra/deploy.sh "$RESOURCE_GROUP" prod "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME" "$API_IMAGE" "$UI_IMAGE" || return
-            else
-              [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$API_IMAGE" || return
-              [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$UI_IMAGE" || return
-            fi
-
-            [[ "$API_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$API_APP" || return
-            [[ "$UI_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$UI_APP" || return
-
-            ui_fqdn="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query properties.configuration.ingress.fqdn --output tsv)"
-            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://$ui_fqdn/")" || return
-            echo "UI health check returned HTTP $status"
-            # 401 is healthy: the UI requires Entra ID sign-in, so an
-            # unauthenticated probe gets the auth challenge.
-            [[ "$status" == 200 || "$status" == 401 || "$status" =~ ^30[1278]$ ]]
-          }
-
-          if ! deploy; then
-            echo 'Deployment verification failed; restoring previous images.' >&2
-            [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$PREVIOUS_API" || true
-            [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$PREVIOUS_UI" || true
-            exit 1
-          fi
+# Deployment is intentionally disabled because this project is no longer
+# deployed. Keep the old production release job here as a commented reference.
+#
+#  release:
+#    name: Release production
+#    # Skipped validate jobs would make the implicit success() false, so gate
+#    # the release on the CI gate's result explicitly.
+#    if: >-
+#      !cancelled() &&
+#      needs.gate.result == 'success' &&
+#      github.event_name != 'pull_request' &&
+#      (needs.changes.outputs.deploy_api == 'true' ||
+#       needs.changes.outputs.deploy_ui == 'true' ||
+#       needs.changes.outputs.deploy_infra == 'true')
+#    needs: [changes, gate]
+#    runs-on: ubuntu-latest
+#    environment: production
+#    concurrency:
+#      group: production
+#      cancel-in-progress: true
+#    permissions:
+#      contents: read
+#      id-token: write
+#    env:
+#      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+#      SEARCH_RESOURCE_GROUP: ${{ vars.AZURE_SEARCH_RESOURCE_GROUP }}
+#      SEARCH_SERVICE_NAME: ${{ vars.AZURE_SEARCH_SERVICE_NAME }}
+#      ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+#      ACR_LOGIN_SERVER: ${{ vars.AZURE_ACR_LOGIN_SERVER }}
+#      API_APP: ${{ vars.AZURE_API_CONTAINER_APP }}
+#      UI_APP: ${{ vars.AZURE_UI_CONTAINER_APP }}
+#      API_CHANGED: ${{ needs.changes.outputs.deploy_api }}
+#      UI_CHANGED: ${{ needs.changes.outputs.deploy_ui }}
+#      INFRA_CHANGED: ${{ needs.changes.outputs.deploy_infra }}
+#    steps:
+#      - uses: actions/checkout@v5
+#      - name: Azure login
+#        uses: azure/login@v3
+#        with:
+#          client-id: ${{ vars.AZURE_CLIENT_ID }}
+#          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+#          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+#      - name: Resolve release images
+#        id: images
+#        run: |
+#          set -euo pipefail
+#          previous_api="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$API_APP" --query 'properties.template.containers[0].image' --output tsv)"
+#          previous_ui="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query 'properties.template.containers[0].image' --output tsv)"
+#          api_image="$previous_api"
+#          ui_image="$previous_ui"
+#          [[ "$API_CHANGED" == true ]] && api_image="$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
+#          [[ "$UI_CHANGED" == true ]] && ui_image="$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
+#          {
+#            echo "previous_api=$previous_api"
+#            echo "previous_ui=$previous_ui"
+#            echo "api=$api_image"
+#            echo "ui=$ui_image"
+#          } >> "$GITHUB_OUTPUT"
+#      - name: Preview infrastructure
+#        if: env.INFRA_CHANGED == 'true'
+#        env:
+#          API_IMAGE: ${{ steps.images.outputs.api }}
+#          UI_IMAGE: ${{ steps.images.outputs.ui }}
+#        run: |
+#          set -euo pipefail
+#          ./infra/enable-search-identity.sh "$AZURE_SUBSCRIPTION_ID" "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME"
+#          az deployment group what-if \
+#            --resource-group "$RESOURCE_GROUP" \
+#            --template-file infra/main.bicep \
+#            --parameters infra/parameters/prod.bicepparam \
+#              searchResourceGroupName="$SEARCH_RESOURCE_GROUP" \
+#              searchServiceName="$SEARCH_SERVICE_NAME" \
+#              apiImage="$API_IMAGE" \
+#              uiImage="$UI_IMAGE" \
+#            --no-pretty-print
+#      # ponytail: az acr build is blocked on this subscription (TasksOperationsNotAllowed),
+#      # so build on the runner and push instead.
+#      - name: Log in to container registry
+#        if: env.API_CHANGED == 'true' || env.UI_CHANGED == 'true'
+#        run: az acr login --name "$ACR_NAME"
+#      - name: Publish API image
+#        if: env.API_CHANGED == 'true'
+#        run: |
+#          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}" --file Dockerfile .
+#          docker push "$ACR_LOGIN_SERVER/azure-rag-api:${GITHUB_SHA}"
+#      - name: Publish UI image
+#        if: env.UI_CHANGED == 'true'
+#        run: |
+#          docker build --tag "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}" --file ui/Dockerfile ui
+#          docker push "$ACR_LOGIN_SERVER/azure-rag-ui:${GITHUB_SHA}"
+#      - name: Deploy and verify
+#        env:
+#          API_IMAGE: ${{ steps.images.outputs.api }}
+#          UI_IMAGE: ${{ steps.images.outputs.ui }}
+#          PREVIOUS_API: ${{ steps.images.outputs.previous_api }}
+#          PREVIOUS_UI: ${{ steps.images.outputs.previous_ui }}
+#        run: |
+#          set -euo pipefail
+#
+#          wait_for_healthy_revision() {
+#            local app="$1"
+#            for _ in {1..30}; do
+#              if az containerapp revision list --resource-group "$RESOURCE_GROUP" --name "$app" \
+#                --query "[?properties.active && properties.healthState == 'Healthy' && properties.provisioningState == 'Provisioned'] | length(@)" \
+#                --output tsv | grep -qx '[1-9][0-9]*'; then
+#                return 0
+#              fi
+#              sleep 10
+#            done
+#            return 1
+#          }
+#
+#          deploy() {
+#            if [[ "$INFRA_CHANGED" == true ]]; then
+#              ./infra/deploy.sh "$RESOURCE_GROUP" prod "$SEARCH_RESOURCE_GROUP" "$SEARCH_SERVICE_NAME" "$API_IMAGE" "$UI_IMAGE" || return
+#            else
+#              [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$API_IMAGE" || return
+#              [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$UI_IMAGE" || return
+#            fi
+#
+#            [[ "$API_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$API_APP" || return
+#            [[ "$UI_CHANGED" != true && "$INFRA_CHANGED" != true ]] || wait_for_healthy_revision "$UI_APP" || return
+#
+#            ui_fqdn="$(az containerapp show --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --query properties.configuration.ingress.fqdn --output tsv)"
+#            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "https://$ui_fqdn/")" || return
+#            echo "UI health check returned HTTP $status"
+#            # 401 is healthy: the UI requires Entra ID sign-in, so an
+#            # unauthenticated probe gets the auth challenge.
+#            [[ "$status" == 200 || "$status" == 401 || "$status" =~ ^30[1278]$ ]]
+#          }
+#
+#          if ! deploy; then
+#            echo 'Deployment verification failed; restoring previous images.' >&2
+#            [[ "$API_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$API_APP" --image "$PREVIOUS_API" || true
+#            [[ "$UI_CHANGED" != true ]] || az containerapp update --resource-group "$RESOURCE_GROUP" --name "$UI_APP" --image "$PREVIOUS_UI" || true
+#            exit 1
+#          fi
